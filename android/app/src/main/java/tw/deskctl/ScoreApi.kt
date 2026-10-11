@@ -175,17 +175,28 @@ object ScoreApi {
     private fun abbr(team: JSONObject?): String =
         team?.optString("abbreviation")?.ifEmpty { null } ?: team?.optString("teamName")?.take(4) ?: "?"
 
+    /** statsapi 的 date 是「美國當地日期」; 台灣日期 date 的比賽可能落在美國前一天或當天, 兩天都查再用台灣時間篩 */
     private fun listMlb(date: LocalDate): List<GameInfo> {
-        val url = "https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=$date&hydrate=team"
-        return mlbGames(url).map { g ->
-            val aw = g.getJSONObject("teams").getJSONObject("away")
-            val hm = g.getJSONObject("teams").getJSONObject("home")
-            GameInfo(
-                "MLB", "mlb", g.optLong("gamePk").toString(), abbr(aw.optJSONObject("team")), abbr(hm.optJSONObject("team")),
-                isoMs(g.optString("gameDate")), mlbState(g),
-                if (aw.has("score")) aw.optInt("score") else null, if (hm.has("score")) hm.optInt("score") else null
-            )
-        }.sortedBy { it.startMs }
+        val seen = HashSet<Long>()
+        val out = ArrayList<GameInfo>()
+        for (d in listOf(date.minusDays(1), date)) {
+            for (g in mlbGames("https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=$d&hydrate=team")) {
+                val pk = g.optLong("gamePk")
+                if (!seen.add(pk)) continue
+                val start = isoMs(g.optString("gameDate"))
+                if (Instant.ofEpochMilli(start).atZone(TPE).toLocalDate() != date) continue
+                val aw = g.getJSONObject("teams").getJSONObject("away")
+                val hm = g.getJSONObject("teams").getJSONObject("home")
+                out.add(
+                    GameInfo(
+                        "MLB", "mlb", pk.toString(), abbr(aw.optJSONObject("team")), abbr(hm.optJSONObject("team")),
+                        start, mlbState(g),
+                        if (aw.has("score")) aw.optInt("score") else null, if (hm.has("score")) hm.optInt("score") else null
+                    )
+                )
+            }
+        }
+        return out.sortedBy { it.startMs }
     }
 
     private fun fetchMlb(ts: List<Tracked>): Map<String, JSONObject> {
