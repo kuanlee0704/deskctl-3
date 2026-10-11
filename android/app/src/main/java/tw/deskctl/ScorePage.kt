@@ -174,7 +174,16 @@ class ScorePage(private val act: Activity) {
         btn(dr, "◀ 前一天") { date = date.minusDays(1); load() }
         btn(dr, "今天") { date = LocalDate.now(tpe); load() }
         btn(dr, "後一天 ▶") { date = date.plusDays(1); load() }
-        tv(c, date.toString() + " (台灣時間)", 13f, cSub).setPadding(0, dp(6), 0, dp(6))
+        val today = LocalDate.now(tpe)
+        val diff = java.time.temporal.ChronoUnit.DAYS.between(today, date).toInt()
+        val wk = arrayOf("一", "二", "三", "四", "五", "六", "日")
+        val rel = when {
+            diff == 0 -> "今天"
+            diff > 0 -> "距今日 +" + diff + " 天 (未來)"
+            else -> "距今日 " + diff + " 天 (過去)"
+        }
+        tv(c, date.monthValue.toString() + "/" + date.dayOfMonth + " 週" + wk[date.dayOfWeek.value - 1] + "  ·  " + rel, 15f, cText, true).setPadding(0, dp(8), 0, 0)
+        tv(c, "今天是 " + today.monthValue + "/" + today.dayOfMonth + " 週" + wk[today.dayOfWeek.value - 1] + " (台灣時間), 比賽時間皆為台灣時間", 12f, cSub).setPadding(0, 0, 0, dp(6))
 
         val g = games
         if (loading) {
@@ -186,14 +195,20 @@ class ScorePage(private val act: Activity) {
         } else {
             for (x in g) {
                 val r = row(c)
-                r.setPadding(0, dp(6), 0, 0)
-                val tx = TextView(act)
-                val score = if (x.aScore != null && x.hScore != null) "  ${x.aScore}:${x.hScore}" else ""
-                val st = when (x.status) { "L" -> " 進行中"; "F" -> " 結束"; else -> "" }
-                tx.text = x.a + " @ " + x.h + "\n" + fmt(x.startMs) + st + score
-                tx.textSize = 14f
-                tx.setTextColor(cText)
-                r.addView(tx, LinearLayout.LayoutParams(0, -2, 1f))
+                r.gravity = android.view.Gravity.CENTER_VERTICAL
+                r.setPadding(0, dp(8), 0, dp(8))
+                val box = LinearLayout(act)
+                box.orientation = LinearLayout.VERTICAL
+                r.addView(box, LinearLayout.LayoutParams(0, -2, 1f))
+                tv(box, x.a + " @ " + x.h, 16f, cText, true)
+                val st = when (x.status) { "L" -> "進行中"; "F" -> "已結束"; else -> "未開賽" }
+                val stCol = when (x.status) { "L" -> cGood; "F" -> cSub; else -> cPrimary }
+                val l2 = tv(box, fmt(x.startMs) + "  " + st, 13f, stCol)
+                l2.setPadding(0, dp(2), 0, 0)
+                if (x.aScore != null && x.hScore != null) {
+                    val l3 = tv(box, x.aScore.toString() + " : " + x.hScore, 15f, cText, true)
+                    l3.setPadding(0, dp(2), 0, 0)
+                }
                 val on = isTracked(x)
                 val b = Button(act)
                 b.isAllCaps = false
@@ -208,7 +223,10 @@ class ScorePage(private val act: Activity) {
                     save()
                     render()
                 }
-                r.addView(b, LinearLayout.LayoutParams(-2, -2))
+                r.addView(b, LinearLayout.LayoutParams(dp(84), -2))
+                val dv = android.view.View(act)
+                dv.setBackgroundColor(0xFFE0E0E0.toInt())
+                c.addView(dv, LinearLayout.LayoutParams(-1, dp(1)))
             }
         }
         if (lg == "CPBL") tv(c, "提醒: CPBL 資料取自官網, 屬實驗性功能。", 12f, cSub).setPadding(0, dp(8), 0, 0)

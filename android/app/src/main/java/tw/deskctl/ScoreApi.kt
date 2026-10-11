@@ -258,11 +258,13 @@ object ScoreApi {
         return out
     }
 
+    /** "Shohei Ohtani" → "S. Ohtani"; 結尾的 Jr. / II 等會跳過 */
     private fun lastName(n: String): String {
         val p = n.trim().split(" ").filter { it.isNotEmpty() }
-        if (p.isEmpty()) return n
+        if (p.size < 2) return n.trim()
         val sfx = setOf("jr.", "jr", "sr.", "sr", "ii", "iii", "iv")
-        return if (p.size >= 2 && p.last().lowercase() in sfx) p[p.size - 2] else p.last()
+        val last = if (p.last().lowercase() in sfx && p.size >= 3) p[p.size - 2] else p.last()
+        return p[0].first().uppercaseChar().toString() + ". " + last
     }
 
     /** 即時打者 / 投手資料 (打擊率、當場幾之幾、投球數、投球局數、責失分); 取不到就略過 */
@@ -451,7 +453,7 @@ object ScoreApi {
         val txt = http("https://cdn.nba.com/static/json/liveData/boxscore/boxscore_${t.id}.json", null, nbaHeaders)
         if (txt == null) {
             // 還沒開賽時沒有 boxscore (404): 顯示開賽時間; 已過開賽時間很久仍抓不到才算失敗
-            return if (now < t.startMs + 30 * 60_000L) base(t, "P") else null
+            return if (now < t.startMs) base(t, "P") else fetchEspnNba(t)
         }
         try {
             val g = JSONObject(txt).getJSONObject("game")
@@ -478,12 +480,33 @@ object ScoreApi {
             return o
         } catch (e: Exception) {
             AppLog.w("SCORE", "NBA boxscore 解析失敗: $e")
-            return null
+            return fetchEspnNba(t)
         }
     }
 
+    /** 在開賽日前後各一天的 ESPN 賽程裡找這場比賽 (ESPN 的日期分界和台灣/美東都不太一樣) */
+    private fun findEspn(t: Tracked): JSONObject? {
+        val d0 = Instant.ofEpochMilli(if (t.startMs > 0) t.startMs else System.currentTimeMillis()).atZone(ET).toLocalDate()
+        val key = nbaKey(t.a) + nbaKey(t.h)
+        for (d in listOf(d0, d0.minusDays(1), d0.plusDays(1))) {
+            for (ev in espnEvents(d.format(DateTimeFormatter.BASIC_ISO_DATE))) {
+                if (t.src == "espn" && ev.optString("id") == t.id) return ev
+                if (t.src != "espn") {
+                    val a = espnComp(ev, false)?.optJSONObject("team")?.optString("abbreviation") ?: ""
+                    val h = espnComp(ev, true)?.optJSONObject("team")?.optString("abbreviation") ?: ""
+                    if (nbaKey(a) + nbaKey(h) == key) return ev
+                }
+            }
+        }
+        return null
+    }
+
     private fun fetchEspnNba(t: Tracked): JSONObject? {
-        val ev = espnEvents(espnDate(t.startMs)).firstOrNull { it.optString("id") == t.id } ?: return base(t, "P")
+        val ev = findEspn(t)
+        if (ev == null) {
+            AppLog.w("SCORE", "ESPN 找不到 " + t.a + "@" + t.h)
+            return if (System.currentTimeMillis() < t.startMs + 30 * 60_000L) base(t, "P") else null
+        }
         val st = espnState(ev)
         val o = base(t, st)
         if (st == "P") return o
