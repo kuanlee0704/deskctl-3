@@ -105,7 +105,7 @@ object ScoreApi {
     }
 
     private fun fmtTime(ms: Long): String =
-        if (ms <= 0) "--:--" else Instant.ofEpochMilli(ms).atZone(TPE).format(DateTimeFormatter.ofPattern("HH:mm"))
+        if (ms <= 0) "--:--" else Instant.ofEpochMilli(ms).atZone(TPE).format(DateTimeFormatter.ofPattern("MM/dd HH:mm"))
 
     private fun isoMs(s: String): Long = try {
         Instant.parse(s).toEpochMilli()
@@ -226,6 +226,7 @@ object ScoreApi {
                         o.put("bs", bs)
                         ls.optJSONObject("defense")?.optJSONObject("pitcher")?.optString("fullName")?.let { o.put("pt", it) }
                     }
+                    if (st == "L" && !mid) mlbLive(id, o)
                     val lt = ls.optJSONObject("teams")
                     o.put("ah", lt?.optJSONObject("away")?.optInt("hits") ?: 0).put("hh", lt?.optJSONObject("home")?.optInt("hits") ?: 0)
                     o.put("ae", lt?.optJSONObject("away")?.optInt("errors") ?: 0).put("he", lt?.optJSONObject("home")?.optInt("errors") ?: 0)
@@ -249,6 +250,52 @@ object ScoreApi {
             }
         }
         return out
+    }
+
+    private fun lastName(n: String): String {
+        val p = n.trim().split(" ").filter { it.isNotEmpty() }
+        if (p.isEmpty()) return n
+        val sfx = setOf("jr.", "jr", "sr.", "sr", "ii", "iii", "iv")
+        return if (p.size >= 2 && p.last().lowercase() in sfx) p[p.size - 2] else p.last()
+    }
+
+    /** 即時打者 / 投手資料 (打擊率、當場幾之幾、投球數、投球局數、責失分); 取不到就略過 */
+    private fun mlbLive(pk: String, o: JSONObject) {
+        val txt = http("https://statsapi.mlb.com/api/v1.1/game/$pk/feed/live") ?: return
+        try {
+            val live = JSONObject(txt).getJSONObject("liveData")
+            val m = live.getJSONObject("plays").optJSONObject("currentPlay")?.optJSONObject("matchup") ?: return
+            val teams = live.getJSONObject("boxscore").getJSONObject("teams")
+            fun player(id: Int): JSONObject? {
+                for (side in listOf("away", "home")) {
+                    val p = teams.getJSONObject(side).optJSONObject("players")?.optJSONObject("ID$id")
+                    if (p != null) return p
+                }
+                return null
+            }
+            val b = m.optJSONObject("batter")
+            val p = m.optJSONObject("pitcher")
+            if (b != null) {
+                o.put("bt", lastName(b.optString("fullName")))
+                val bp = player(b.optInt("id"))
+                val avg = bp?.optJSONObject("seasonStats")?.optJSONObject("batting")?.optString("avg") ?: ""
+                if (avg.isNotEmpty() && avg != "-.--") o.put("bavg", avg.removePrefix("0").let { if (it.startsWith(".")) it else ".$it" })
+                val bs = bp?.optJSONObject("stats")?.optJSONObject("batting")
+                if (bs != null) o.put("bhab", bs.optInt("hits").toString() + "-" + bs.optInt("atBats"))
+            }
+            if (p != null) {
+                o.put("pt", lastName(p.optString("fullName")))
+                val pp = player(p.optInt("id"))
+                val ps = pp?.optJSONObject("stats")?.optJSONObject("pitching")
+                if (ps != null) {
+                    if (ps.has("numberOfPitches")) o.put("pc", ps.optInt("numberOfPitches"))
+                    ps.optString("inningsPitched").takeIf { it.isNotEmpty() }?.let { o.put("pip", it) }
+                    if (ps.has("earnedRuns")) o.put("per", ps.optInt("earnedRuns"))
+                }
+            }
+        } catch (e: Exception) {
+            AppLog.w("SCORE", "MLB 即時資料解析失敗: $e")
+        }
     }
 
     // ================= NBA =================
@@ -309,9 +356,17 @@ object ScoreApi {
                 }
             }
         }
-        if (out.isNotEmpty()) return out.sortedBy { it.startMs }
-        return listEspnNba(date)
+        // 季前賽等比賽可能不在官方賽程檔裡, 一律再用 ESPN 補上沒出現的比賽 (用兩隊代號比對)
+        val espn = listEspnNba(date)
+        val have = out.map { nbaKey(it.a) + nbaKey(it.h) }.toSet()
+        val extra = espn.filter { (nbaKey(it.a) + nbaKey(it.h)) !in have }
+        AppLog.i("SCORE", "NBA " + date + ": 官方賽程 " + out.size + " 場, ESPN 補 " + extra.size + " 場")
+        return (out + extra).sortedBy { it.startMs }
     }
+
+    private val nbaAlias = mapOf("GS" to "GSW", "NY" to "NYK", "NO" to "NOP", "SA" to "SAS", "UTAH" to "UTA", "WSH" to "WAS", "PHO" to "PHX", "BKN" to "BKN", "CHA" to "CHA")
+
+    private fun nbaKey(t: String): String = nbaAlias[t.uppercase()] ?: t.uppercase()
 
     private fun espnDate(ms: Long): String = Instant.ofEpochMilli(ms).atZone(ET).format(DateTimeFormatter.BASIC_ISO_DATE)
 

@@ -61,8 +61,8 @@ class ScorePage(Page):
         return False
 
     # ---------- 共用 ----------
-    def _teams(self, c, sc, a, h, aS, hS, bat=-1, live=True):
-        """左側兩列: 隊名 + 大比分。bat: 0=客隊攻擊 1=主隊攻擊 (棒球)"""
+    def _teams(self, c, sc, a, h, aS, hS, bat=-1, live=True, sub=None):
+        """左側兩列: 隊名 + 大比分。bat: 0=客隊攻擊 1=主隊攻擊 (棒球)。sub: 兩隊各一行小字 (隊名下方)"""
         done = sc.get("st") == "F"
         for r, (nm, s, o) in enumerate(((a, aS, hS), (h, hS, aS))):
             y = 15 + r * 27
@@ -73,22 +73,29 @@ class ScorePage(Page):
                 col = DIM
             if bat == r:
                 c.frect(0, y + 4, 2, 16, ACC)
-            c.text(nm, 4, y + 6, FG if bat == r or not live else col)
+            nc = FG if bat == r or not live else col
+            if sub:
+                c.text(nm, 4, y + 1, nc)
+                c.text(sub[r], 4, y + 13, DIM)
+            else:
+                c.text(nm, 4, y + 6, nc)
             st = str(s) if s is not None else "-"
             c.text_big(st, 86 - len(st) * 12, y, col, 2, 6)
         c.hline(4, 41, 82, FAINT)
         c.vline(89, 14, 66, FAINT)
 
     def _pre_final(self, c, sc):
-        """未開賽 / 已結束的右側資訊; 回傳 True 表示已處理"""
-        st = sc.get("st")
-        if st == "P":
+        """未開賽的右側資訊 (日期+開賽時間); 回傳 True 表示已處理"""
+        if sc.get("st") == "P":
+            tm = sc.get("tm", "--:--")
+            d, _, t = tm.rpartition(" ")
             c.text("未開賽", 94, 14, ACC)
-            c.text_big(sc.get("tm", "--:--"), 94, 30, FG, 2, 6) if len(sc.get("tm", "")) <= 5 else c.text(sc.get("tm", ""), 94, 34, FG)
+            if d:
+                c.text(d, 94, 28, FG)
+            c.text_big(t, 94, 42, FG, 2, 6) if len(t) <= 5 else c.text(t, 94, 46, FG)
             return True
-        if st == "F":
+        if sc.get("st") == "F":
             c.text("比賽結束", 94, 14, ACC)
-            return False
         return False
 
     # ---------- 棒球 ----------
@@ -97,31 +104,44 @@ class ScorePage(Page):
         aS, hS = sc.get("as"), sc.get("hs")
         st = sc.get("st")
         bat = (sc.get("hf", 0)) if st == "L" else -1
-        self._teams(c, sc, a, h, aS if aS is not None else 0, hS if hS is not None else 0, bat, st == "L")
+        sub = None
+        if st in ("L", "F"):
+            sub = ("H%d E%d" % (sc.get("ah", 0), sc.get("ae", 0)), "H%d E%d" % (sc.get("hh", 0), sc.get("he", 0)))
+        self._teams(c, sc, a, h, aS if aS is not None else 0, hS if hS is not None else 0, bat, st == "L", sub)
         if self._pre_final(c, sc):
             return
         if st == "F":
-            c.text("%d局" % sc.get("in", 9), 94, 30, FG)
-            c.text("安打 %d:%d" % (sc.get("ah", 0), sc.get("hh", 0)), 94, 44, DIM)
-            c.text("失誤 %d:%d" % (sc.get("ae", 0), sc.get("he", 0)), 94, 58, DIM)
+            c.text("%d局" % sc.get("in", 9), 94, 28, FG)
+            c.text("安打 %d:%d" % (sc.get("ah", 0), sc.get("hh", 0)), 94, 42, DIM)
+            c.text("失誤 %d:%d" % (sc.get("ae", 0), sc.get("he", 0)), 94, 56, DIM)
             return
         inn = sc.get("in", 1)
         tx = sc.get("tx") or ("%d局" % inn)
         c.text(tx, 94, 14, ACC)
         w = c.text_w(tx)
-        mid = sc.get("mid")
-        if not mid:
+        if not sc.get("mid"):
             c.icon(IC["down" if sc.get("hf", 0) else "up"], 94 + w + 3, 18, ACC)
         bs = sc.get("bs", 0)
-        cx, cy = 124, 38
+        cx, cy = 143, 36
         diamond(c, cx, cy - 8, 4, WARN if bs & 2 else FAINT, bs & 2)
         diamond(c, cx + 9, cy + 1, 4, WARN if bs & 1 else FAINT, bs & 1)
         diamond(c, cx - 9, cy + 1, 4, WARN if bs & 4 else FAINT, bs & 4)
-        c.text("%d壞%d好" % (sc.get("b", 0), sc.get("s", 0)), 94, 52, FG)
-        o = sc.get("o", 0)
-        c.text("出局", 94, 66, DIM)
-        for i in range(3):
-            c.frect(124 + i * 9, 69, 6, 6, BAD if i < o else FAINT)
+        # 好壞球 / 出局: 小方塊
+        for k, (lab, v, mx, col) in enumerate((("B", sc.get("b", 0), 4, GOOD), ("S", sc.get("s", 0), 3, WARN), ("O", sc.get("o", 0), 3, BAD))):
+            y = 27 + k * 10
+            c.text(lab, 94, y - 3, DIM)
+            for i in range(mx):
+                c.frect(104 + i * 7, y, 5, 5, col if i < v else FAINT)
+        # 打者 / 投手 (簡短版)
+        bt = ""
+        if sc.get("bavg"):
+            bt = sc.get("bavg", "") + (" " + sc["bhab"] if sc.get("bhab") else "")
+        if bt:
+            c.text("打", 94, 56, DIM)
+            c.text(clip_text(c, bt, 50), 108, 56, FG)
+        if sc.get("pc") is not None:
+            c.text("投", 94, 68, DIM)
+            c.text("%d球" % sc["pc"], 108, 68, FG)
 
     def base_detail(self, c, sc):
         a, h = sc.get("a", "?"), sc.get("h", "?")
@@ -149,16 +169,33 @@ class ScorePage(Page):
             c.text_c(str(H), 138, y, FG)
             c.text_c(str(E), 150, y, WARN if E else DIM)
         c.hline(2, 53, 156, FAINT)
-        bt, pt = sc.get("bt", ""), sc.get("pt", "")
         c.text("打", 2, 55, DIM)
-        c.text(clip_text(c, bt or "--", 130), 18, 55, FG)
+        t = sc.get("bt", "") or "--"
+        x = c.text(clip_text(c, t, 70), 16, 55, FG)
+        ex = ((sc.get("bavg", "") + " " + sc["bhab"]).strip() if sc.get("bhab") or sc.get("bavg") else "")
+        if ex:
+            c.text_r(ex, 156, 55, FG)
         c.text("投", 2, 67, DIM)
-        c.text(clip_text(c, pt or "--", 130), 18, 67, FG)
+        t = sc.get("pt", "") or "--"
+        c.text(clip_text(c, t, 70), 16, 67, FG)
+        ex = ""
+        if sc.get("pc") is not None:
+            ex = "%d球" % sc["pc"]
+            if sc.get("pip"):
+                ex += " %s局" % sc["pip"]
+            if sc.get("per") is not None:
+                ex += " %d責" % sc["per"]
+        if ex:
+            c.text_r(ex, 156, 67, FG)
 
     # ---------- 籃球 ----------
     def bask_main(self, c, sc):
         a, h = sc.get("a", "?"), sc.get("h", "?")
-        self._teams(c, sc, a, h, sc.get("as", 0), sc.get("hs", 0), -1, sc.get("st") == "L")
+        live = sc.get("st") == "L"
+        sub = None
+        if live or sc.get("st") == "F":
+            sub = ("犯%d 暫%d" % (sc.get("af", 0), sc.get("at", 0)), "犯%d 暫%d" % (sc.get("hf2", 0), sc.get("ht", 0)))
+        self._teams(c, sc, a, h, sc.get("as", 0), sc.get("hs", 0), -1, live, sub)
         if self._pre_final(c, sc):
             return
         q = sc.get("q", 1)

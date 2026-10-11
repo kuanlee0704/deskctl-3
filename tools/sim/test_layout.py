@@ -324,10 +324,10 @@ r.click(K_CENTER); snap(r, "msg marked detail")
 r = mk(); r.app.go("score", clock.now); r.run(100); snap(r, "score empty")
 r.msg(k="games", l=[["MLB", "NYY", "BOS"], ["NBA", "LAL", "GSW"], ["CPBL", "樂天", "統一"], ["MLB", "SF", "LAD"]]); r.run(100)
 snap(r, "score waiting")
-base_live = dict(k="score", i=0, lg="MLB", st="L", a="NYY", h="BOS", **{"as": 12, "hs": 3}, **{"in": 10, "hf": 1, "tx": "10局", "b": 3, "s": 2, "o": 2, "bs": 7, "ah": 14, "hh": 5, "ae": 1, "he": 0, "bt": "Aaron Judge (very long name here)", "pt": "Garrett Crochet", "ai": [0, 1, 0, 0, 3, 0, 5, 0, 0, 3], "hi": [0, 0, 1, 0, 0, 2, 0, 0, 0]})
+base_live = dict(k="score", i=0, lg="MLB", st="L", a="NYY", h="BOS", **{"as": 12, "hs": 3}, **{"in": 10, "hf": 1, "tx": "10局", "b": 3, "s": 2, "o": 2, "bs": 7, "ah": 14, "hh": 5, "ae": 1, "he": 0, "bt": "Judge-Longname", "pt": "Crochet", "bavg": ".312", "bhab": "2-4", "pc": 87, "pip": "5.1", "per": 2, "ai": [0, 1, 0, 0, 3, 0, 5, 0, 0, 3], "hi": [0, 0, 1, 0, 0, 2, 0, 0, 0]})
 for bs in (0, 1, 2, 4, 7):
     for st in ("L", "P", "F"):
-        d = dict(base_live, bs=bs, st=st, tm="19:10")
+        d = dict(base_live, bs=bs, st=st, tm="10/12 19:10")
         r.msg(**d); r.run(50)
         r.app.cur.sel = 0
         for v in (0, 1):
@@ -341,7 +341,7 @@ r.app.cur.view = 0; snap(r, "mlb middle")
 bk = dict(k="score", i=1, lg="NBA", st="L", a="LAL", h="GSW", **{"as": 112, "hs": 108}, q=4, c="0:45", af=7, hf2=5, at=1, ht=0, ab=1, hb=0, aq=[28, 30, 25, 29], hq=[27, 25, 30, 26])
 for q, c_ in ((1, "12:00"), (2, "5:32"), (4, "0:45"), (5, "3:07"), (7, "0.8")):
     for st in ("L", "P", "F"):
-        d = dict(bk, q=q, c=c_, st=st, tm="09:30", aq=bk["aq"] + ([5] * (q - 4) if q > 4 else []), hq=bk["hq"] + ([4] * (q - 4) if q > 4 else []))
+        d = dict(bk, q=q, c=c_, st=st, tm="10/12 09:30", aq=bk["aq"] + ([5] * (q - 4) if q > 4 else []), hq=bk["hq"] + ([4] * (q - 4) if q > 4 else []))
         r.msg(**d); r.run(50)
         r.app.cur.sel = 1
         for v in (0, 1):
