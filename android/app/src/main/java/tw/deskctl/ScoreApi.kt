@@ -1,0 +1,612 @@
+package tw.deskctl
+
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.CookieHandler
+import java.net.CookieManager
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+
+/** 追蹤中的比賽。src: nba=NBA 官方資料 / espn=ESPN 備援 / mlb / cpbl */
+class Tracked(val lg: String, val src: String, val id: String, val a: String, val h: String, val startMs: Long) {
+    fun toJson(): JSONObject = JSONObject().put("lg", lg).put("src", src).put("id", id).put("a", a).put("h", h).put("t", startMs)
+
+    companion object {
+        fun from(o: JSONObject) = Tracked(
+            o.optString("lg"), o.optString("src"), o.optString("id"), o.optString("a"), o.optString("h"), o.optLong("t")
+        )
+    }
+}
+
+/** 賽程清單上的一場比賽 (給手機畫面選擇用) */
+class GameInfo(
+    val lg: String, val src: String, val id: String, val a: String, val h: String, val startMs: Long,
+    val status: String, val aScore: Int?, val hScore: Int?
+) {
+    fun tracked() = Tracked(lg, src, id, a, h, startMs)
+}
+
+object ScoreStore {
+    @Volatile var version = 0
+    const val MAX = 8
+
+    fun load(c: android.content.Context): MutableList<Tracked> {
+        val out = ArrayList<Tracked>()
+        try {
+            val a = JSONArray(Prefs.scoreTracked(c))
+            for (i in 0 until a.length()) out.add(Tracked.from(a.getJSONObject(i)))
+        } catch (_: Exception) {
+        }
+        return out
+    }
+
+    fun save(c: android.content.Context, l: List<Tracked>) {
+        val a = JSONArray()
+        for (t in l.take(MAX)) a.put(t.toJson())
+        Prefs.setScoreTracked(c, a.toString())
+        version++
+    }
+}
+
+/**
+ * 比分資料來源 (全部是公開、免金鑰的網路介面):
+ *  - MLB : statsapi.mlb.com (官方)  → 比分、局數半局、好壞球、出局、壘包、打者投手、每局得分
+ *  - NBA : cdn.nba.com 官方資料 (賽程 / 即時 boxscore → 犯規、暫停、罰球加成); 失敗時用 ESPN (沒有犯規資料)
+ *  - CPBL: cpbl.com.tw 官網 (沒有公開 API, 屬盡力而為; 網站改版就可能失效, 失敗時看「記錄」的 CPBL 標籤)
+ * 網路請求都必須在背景執行緒呼叫。
+ */
+object ScoreApi {
+    private const val UA = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+    private val TPE: ZoneId = ZoneId.of("Asia/Taipei")
+    private val ET: ZoneId = ZoneId.of("America/New_York")
+
+    init {
+        try {
+            if (CookieHandler.getDefault() == null) CookieHandler.setDefault(CookieManager())
+        } catch (_: Exception) {
+        }
+    }
+
+    fun http(url: String, post: String? = null, headers: Map<String, String> = emptyMap()): String? {
+        var c: HttpURLConnection? = null
+        try {
+            c = URL(url).openConnection() as HttpURLConnection
+            c.connectTimeout = 8000
+            c.readTimeout = 10000
+            c.instanceFollowRedirects = true
+            c.setRequestProperty("User-Agent", UA)
+            c.setRequestProperty("Accept", "application/json, text/plain, */*")
+            for ((k, v) in headers) c.setRequestProperty(k, v)
+            if (post != null) {
+                c.requestMethod = "POST"
+                c.doOutput = true
+                if (!headers.containsKey("Content-Type")) c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                c.outputStream.use { it.write(post.toByteArray()) }
+            }
+            if (c.responseCode !in 200..299) {
+                AppLog.w("SCORE", "HTTP ${c.responseCode} " + url.substringBefore('?').takeLast(60))
+                return null
+            }
+            return BufferedReader(InputStreamReader(c.inputStream, "UTF-8")).use { it.readText() }
+        } catch (e: Exception) {
+            AppLog.w("SCORE", "連線失敗 " + url.substringBefore('?').takeLast(50) + ": " + e.javaClass.simpleName)
+            return null
+        } finally {
+            c?.disconnect()
+        }
+    }
+
+    private fun fmtTime(ms: Long): String =
+        if (ms <= 0) "--:--" else Instant.ofEpochMilli(ms).atZone(TPE).format(DateTimeFormatter.ofPattern("HH:mm"))
+
+    private fun isoMs(s: String): Long = try {
+        Instant.parse(s).toEpochMilli()
+    } catch (_: Exception) {
+        try {
+            LocalDateTime.parse(s.take(19)).atZone(TPE).toInstant().toEpochMilli()
+        } catch (_: Exception) {
+            0L
+        }
+    }
+
+    fun list(lg: String, date: LocalDate): List<GameInfo> = when (lg) {
+        "MLB" -> listMlb(date)
+        "NBA" -> listNba(date)
+        "CPBL" -> listCpbl(date)
+        else -> emptyList()
+    }
+
+    /** 回傳 欄位編號 → 要傳給控制器的 JSON (欄位編號 = 在追蹤清單裡的順序) */
+    fun fetch(list: List<Tracked>): Map<Int, JSONObject> {
+        val out = HashMap<Int, JSONObject>()
+        // MLB 一次抓全部
+        val mlb = list.withIndex().filter { it.value.lg == "MLB" }
+        if (mlb.isNotEmpty()) {
+            val m = fetchMlb(mlb.map { it.value })
+            for ((idx, t) in mlb) m[t.id]?.let { out[idx] = it.put("k", "score").put("i", idx) }
+        }
+        for ((idx, t) in list.withIndex()) {
+            val o = when (t.lg) {
+                "NBA" -> fetchNba(t)
+                "CPBL" -> fetchCpbl(t)
+                else -> null
+            } ?: continue
+            out[idx] = o.put("k", "score").put("i", idx)
+        }
+        return out
+    }
+
+    private fun base(t: Tracked, st: String): JSONObject {
+        val o = JSONObject().put("lg", t.lg).put("st", st).put("a", t.a).put("h", t.h)
+        if (st == "P") o.put("tm", fmtTime(t.startMs))
+        return o
+    }
+
+    // ================= MLB =================
+    private fun mlbGames(url: String): List<JSONObject> {
+        val txt = http(url) ?: return emptyList()
+        val out = ArrayList<JSONObject>()
+        try {
+            val dates = JSONObject(txt).optJSONArray("dates") ?: return out
+            for (i in 0 until dates.length()) {
+                val g = dates.getJSONObject(i).optJSONArray("games") ?: continue
+                for (j in 0 until g.length()) out.add(g.getJSONObject(j))
+            }
+        } catch (e: Exception) {
+            AppLog.w("SCORE", "MLB 解析失敗: $e")
+        }
+        return out
+    }
+
+    private fun mlbState(g: JSONObject): String = when (g.optJSONObject("status")?.optString("abstractGameState")) {
+        "Live" -> "L"
+        "Final" -> "F"
+        else -> "P"
+    }
+
+    private fun abbr(team: JSONObject?): String =
+        team?.optString("abbreviation")?.ifEmpty { null } ?: team?.optString("teamName")?.take(4) ?: "?"
+
+    private fun listMlb(date: LocalDate): List<GameInfo> {
+        val url = "https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=$date&hydrate=team"
+        return mlbGames(url).map { g ->
+            val aw = g.getJSONObject("teams").getJSONObject("away")
+            val hm = g.getJSONObject("teams").getJSONObject("home")
+            GameInfo(
+                "MLB", "mlb", g.optLong("gamePk").toString(), abbr(aw.optJSONObject("team")), abbr(hm.optJSONObject("team")),
+                isoMs(g.optString("gameDate")), mlbState(g),
+                if (aw.has("score")) aw.optInt("score") else null, if (hm.has("score")) hm.optInt("score") else null
+            )
+        }.sortedBy { it.startMs }
+    }
+
+    private fun fetchMlb(ts: List<Tracked>): Map<String, JSONObject> {
+        val ids = ts.joinToString(",") { it.id }
+        val games = mlbGames("https://statsapi.mlb.com/api/v1/schedule?sportId=1&gamePks=$ids&hydrate=team,linescore")
+        val out = HashMap<String, JSONObject>()
+        for (g in games) {
+            try {
+                val id = g.optLong("gamePk").toString()
+                val t = ts.firstOrNull { it.id == id } ?: continue
+                val st = mlbState(g)
+                val o = base(t, st)
+                val aw = g.getJSONObject("teams").getJSONObject("away")
+                val hm = g.getJSONObject("teams").getJSONObject("home")
+                val ls = g.optJSONObject("linescore")
+                if (st != "P") {
+                    o.put("as", aw.optInt("score", ls?.optJSONObject("teams")?.optJSONObject("away")?.optInt("runs") ?: 0))
+                    o.put("hs", hm.optInt("score", ls?.optJSONObject("teams")?.optJSONObject("home")?.optInt("runs") ?: 0))
+                }
+                if (ls != null && st != "P") {
+                    val inn = ls.optInt("currentInning", 1)
+                    val half = ls.optString("inningHalf")
+                    o.put("in", inn)
+                    o.put("hf", if (half == "Bottom" || half == "End") 1 else 0)
+                    val mid = half == "Middle" || half == "End"
+                    if (st == "L") {
+                        o.put("tx", inn.toString() + (if (mid) (if (half == "Middle") "中" else "終") else "局"))
+                        if (mid) o.put("mid", 1)
+                        o.put("b", ls.optInt("balls")).put("s", ls.optInt("strikes")).put("o", ls.optInt("outs"))
+                        val off = ls.optJSONObject("offense")
+                        var bs = 0
+                        if (off != null && !mid) {
+                            if (off.has("first")) bs = bs or 1
+                            if (off.has("second")) bs = bs or 2
+                            if (off.has("third")) bs = bs or 4
+                            off.optJSONObject("batter")?.optString("fullName")?.let { o.put("bt", it) }
+                        }
+                        o.put("bs", bs)
+                        ls.optJSONObject("defense")?.optJSONObject("pitcher")?.optString("fullName")?.let { o.put("pt", it) }
+                    }
+                    val lt = ls.optJSONObject("teams")
+                    o.put("ah", lt?.optJSONObject("away")?.optInt("hits") ?: 0).put("hh", lt?.optJSONObject("home")?.optInt("hits") ?: 0)
+                    o.put("ae", lt?.optJSONObject("away")?.optInt("errors") ?: 0).put("he", lt?.optJSONObject("home")?.optInt("errors") ?: 0)
+                    val ai = JSONArray()
+                    val hi = JSONArray()
+                    val inns = ls.optJSONArray("innings")
+                    if (inns != null) {
+                        for (i in 0 until inns.length()) {
+                            val x = inns.getJSONObject(i)
+                            val ar = x.optJSONObject("away")
+                            val hr = x.optJSONObject("home")
+                            if (ar != null && ar.has("runs")) ai.put(ar.optInt("runs"))
+                            if (hr != null && hr.has("runs")) hi.put(hr.optInt("runs"))
+                        }
+                    }
+                    o.put("ai", ai).put("hi", hi)
+                }
+                out[id] = o
+            } catch (e: Exception) {
+                AppLog.w("SCORE", "MLB 單場解析失敗: $e")
+            }
+        }
+        return out
+    }
+
+    // ================= NBA =================
+    private val nbaHeaders = mapOf("Referer" to "https://www.nba.com/", "Origin" to "https://www.nba.com")
+    private var nbaSched: JSONArray? = null
+    private var nbaSchedAt = 0L
+
+    private fun nbaSchedule(): JSONArray? {
+        val now = System.currentTimeMillis()
+        if (nbaSched != null && now - nbaSchedAt < 3600_000L) return nbaSched
+        val txt = http("https://cdn.nba.com/static/json/staticData/scheduleLeagueV2_1.json", null, nbaHeaders) ?: return nbaSched
+        return try {
+            val a = JSONObject(txt).getJSONObject("leagueSchedule").getJSONArray("gameDates")
+            nbaSched = a
+            nbaSchedAt = now
+            a
+        } catch (e: Exception) {
+            AppLog.w("SCORE", "NBA 賽程解析失敗: $e")
+            nbaSched
+        }
+    }
+
+    private fun nbaState(code: Int) = when (code) {
+        2 -> "L"
+        3 -> "F"
+        else -> "P"
+    }
+
+    /** 美東日期: 賽程以美東日期為準; 台灣時間的「今天」晚上/清晨對應的比賽多半是美東前一天或當天 */
+    private fun listNba(date: LocalDate): List<GameInfo> {
+        val out = ArrayList<GameInfo>()
+        val sched = nbaSchedule()
+        if (sched != null) {
+            // 台灣日期 date 的 00:00~24:00 = 美東前一天傍晚~當天: 兩個美東日期都要找, 再用台灣時間過濾
+            val wanted = setOf(date.minusDays(1), date)
+            val fmt = DateTimeFormatter.ofPattern("MM/dd/yyyy")
+            val keys = wanted.map { it.format(fmt) }
+            for (i in 0 until sched.length()) {
+                val d = sched.getJSONObject(i)
+                val gd = d.optString("gameDate").take(10)
+                if (gd !in keys) continue
+                val gs = d.optJSONArray("games") ?: continue
+                for (j in 0 until gs.length()) {
+                    val g = gs.getJSONObject(j)
+                    val start = isoMs(g.optString("gameDateTimeUTC"))
+                    if (Instant.ofEpochMilli(start).atZone(TPE).toLocalDate() != date) continue
+                    val ht = g.optJSONObject("homeTeam")
+                    val at = g.optJSONObject("awayTeam")
+                    val fin = g.optInt("gameStatus", 1)
+                    out.add(
+                        GameInfo(
+                            "NBA", "nba", g.optString("gameId"), at?.optString("teamTricode") ?: "?", ht?.optString("teamTricode") ?: "?",
+                            start, nbaState(fin),
+                            if (fin >= 2 && at != null && at.has("score")) at.optInt("score") else null,
+                            if (fin >= 2 && ht != null && ht.has("score")) ht.optInt("score") else null
+                        )
+                    )
+                }
+            }
+        }
+        if (out.isNotEmpty()) return out.sortedBy { it.startMs }
+        return listEspnNba(date)
+    }
+
+    private fun espnDate(ms: Long): String = Instant.ofEpochMilli(ms).atZone(ET).format(DateTimeFormatter.BASIC_ISO_DATE)
+
+    private fun espnEvents(dateStr: String): List<JSONObject> {
+        val txt = http("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=$dateStr") ?: return emptyList()
+        val out = ArrayList<JSONObject>()
+        try {
+            val ev = JSONObject(txt).optJSONArray("events") ?: return out
+            for (i in 0 until ev.length()) out.add(ev.getJSONObject(i))
+        } catch (e: Exception) {
+            AppLog.w("SCORE", "ESPN 解析失敗: $e")
+        }
+        return out
+    }
+
+    private fun espnComp(ev: JSONObject, home: Boolean): JSONObject? {
+        val cs = ev.optJSONArray("competitions")?.optJSONObject(0)?.optJSONArray("competitors") ?: return null
+        for (i in 0 until cs.length()) {
+            val c = cs.getJSONObject(i)
+            if ((c.optString("homeAway") == "home") == home) return c
+        }
+        return null
+    }
+
+    private fun espnState(ev: JSONObject) = when (ev.optJSONObject("status")?.optJSONObject("type")?.optString("state")) {
+        "in" -> "L"
+        "post" -> "F"
+        else -> "P"
+    }
+
+    private fun listEspnNba(date: LocalDate): List<GameInfo> {
+        val out = ArrayList<GameInfo>()
+        val seen = HashSet<String>()
+        for (d in listOf(date.minusDays(1), date)) {
+            for (ev in espnEvents(d.format(DateTimeFormatter.BASIC_ISO_DATE))) {
+                val id = ev.optString("id")
+                if (!seen.add(id)) continue
+                val start = isoMs(ev.optString("date").let { if (it.length == 17) it + ":00Z" else it })
+                if (Instant.ofEpochMilli(start).atZone(TPE).toLocalDate() != date) continue
+                val h = espnComp(ev, true)
+                val a = espnComp(ev, false)
+                val st = espnState(ev)
+                out.add(
+                    GameInfo(
+                        "NBA", "espn", id, a?.optJSONObject("team")?.optString("abbreviation") ?: "?",
+                        h?.optJSONObject("team")?.optString("abbreviation") ?: "?", start, st,
+                        if (st != "P") a?.optString("score")?.toIntOrNull() else null, if (st != "P") h?.optString("score")?.toIntOrNull() else null
+                    )
+                )
+            }
+        }
+        return out.sortedBy { it.startMs }
+    }
+
+    /** "PT05M32.00S" → "5:32"; 最後一分鐘顯示 "0:45" (秒); 小於 1 分且有小數 → "0:45" */
+    private fun nbaClock(s: String): String {
+        val m = Regex("PT(\\d+)M(\\d+)(?:\\.(\\d+))?S").find(s) ?: return ""
+        val mm = m.groupValues[1].toInt()
+        val ss = m.groupValues[2].toInt()
+        return "%d:%02d".format(mm, ss)
+    }
+
+    private fun periodScores(arr: JSONArray?): JSONArray {
+        val out = JSONArray()
+        if (arr == null) return out
+        for (i in 0 until arr.length()) out.put(arr.getJSONObject(i).optInt("score"))
+        return out
+    }
+
+    private fun fetchNba(t: Tracked): JSONObject? {
+        if (t.src == "espn") return fetchEspnNba(t)
+        val now = System.currentTimeMillis()
+        val txt = http("https://cdn.nba.com/static/json/liveData/boxscore/boxscore_${t.id}.json", null, nbaHeaders)
+        if (txt == null) {
+            // 還沒開賽時沒有 boxscore (404): 顯示開賽時間; 已過開賽時間很久仍抓不到才算失敗
+            return if (now < t.startMs + 30 * 60_000L) base(t, "P") else null
+        }
+        try {
+            val g = JSONObject(txt).getJSONObject("game")
+            val st = nbaState(g.optInt("gameStatus", 1))
+            val o = base(t, st)
+            if (st == "P") return o
+            val ht = g.getJSONObject("homeTeam")
+            val at = g.getJSONObject("awayTeam")
+            o.put("as", at.optInt("score")).put("hs", ht.optInt("score"))
+            val q = g.optInt("period", 1)
+            o.put("q", q)
+            val clk = nbaClock(g.optString("gameClock"))
+            o.put("c", clk)
+            if (st == "L" && (clk == "0:00" || clk.isEmpty())) o.put("brk", 1)
+            fun fouls(team: JSONObject): Int {
+                val s = team.optJSONObject("statistics") ?: return 0
+                return if (s.has("foulsTeam")) s.optInt("foulsTeam") else s.optInt("foulsPersonal")
+            }
+            o.put("af", fouls(at)).put("hf2", fouls(ht))
+            o.put("at", at.optInt("timeoutsRemaining")).put("ht", ht.optInt("timeoutsRemaining"))
+            o.put("ab", if (at.optString("inBonus") in listOf("1", "true")) 1 else 0)
+            o.put("hb", if (ht.optString("inBonus") in listOf("1", "true")) 1 else 0)
+            o.put("aq", periodScores(at.optJSONArray("periods"))).put("hq", periodScores(ht.optJSONArray("periods")))
+            return o
+        } catch (e: Exception) {
+            AppLog.w("SCORE", "NBA boxscore 解析失敗: $e")
+            return null
+        }
+    }
+
+    private fun fetchEspnNba(t: Tracked): JSONObject? {
+        val ev = espnEvents(espnDate(t.startMs)).firstOrNull { it.optString("id") == t.id } ?: return base(t, "P")
+        val st = espnState(ev)
+        val o = base(t, st)
+        if (st == "P") return o
+        val h = espnComp(ev, true)
+        val a = espnComp(ev, false)
+        o.put("as", a?.optString("score")?.toIntOrNull() ?: 0).put("hs", h?.optString("score")?.toIntOrNull() ?: 0)
+        val s = ev.optJSONObject("status")
+        o.put("q", s?.optInt("period", 1) ?: 1)
+        val clk = s?.optString("displayClock") ?: ""
+        o.put("c", clk.substringBefore('.'))
+        fun ls(c: JSONObject?): JSONArray {
+            val r = JSONArray()
+            val arr = c?.optJSONArray("linescores") ?: return r
+            for (i in 0 until arr.length()) r.put(arr.getJSONObject(i).optDouble("value", 0.0).toInt())
+            return r
+        }
+        o.put("aq", ls(a)).put("hq", ls(h))
+        return o
+    }
+
+    // ================= CPBL (盡力而為) =================
+    private val cpblShort = mapOf(
+        "中信兄弟" to "兄弟", "統一7-ELEVEn獅" to "統一", "統一獅" to "統一", "樂天桃猿" to "樂天",
+        "富邦悍將" to "富邦", "味全龍" to "味全", "台鋼雄鷹" to "台鋼"
+    )
+
+    private fun cpblName(s: String): String = cpblShort[s] ?: cpblShort.entries.firstOrNull { s.contains(it.value) }?.value ?: s.take(3)
+
+    private var cpblToken: String? = null
+    private var cpblTokenAt = 0L
+
+    private fun cpblTokenGet(): String? {
+        val now = System.currentTimeMillis()
+        if (cpblToken != null && now - cpblTokenAt < 600_000L) return cpblToken
+        val html = http("https://www.cpbl.com.tw/schedule") ?: return null
+        val pats = listOf(
+            Regex("RequestVerificationToken[\"']?\\s*[:=]\\s*[\"']([^\"']+)[\"']"),
+            Regex("name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\""),
+            Regex("value=\"([^\"]+)\"[^>]*name=\"__RequestVerificationToken\"")
+        )
+        for (p in pats) {
+            val m = p.find(html)
+            if (m != null) {
+                cpblToken = m.groupValues[1]
+                cpblTokenAt = now
+                return cpblToken
+            }
+        }
+        AppLog.w("CPBL", "在 cpbl.com.tw/schedule 找不到驗證權杖 (網站可能改版)")
+        return null
+    }
+
+    private fun cpblPost(path: String, body: String): JSONObject? {
+        val tk = cpblTokenGet() ?: return null
+        val txt = http(
+            "https://www.cpbl.com.tw$path", body,
+            mapOf(
+                "RequestVerificationToken" to tk, "X-Requested-With" to "XMLHttpRequest", "Referer" to "https://www.cpbl.com.tw/schedule",
+                "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8"
+            )
+        )
+        if (txt == null) {
+            cpblToken = null
+            return null
+        }
+        return try {
+            JSONObject(txt)
+        } catch (e: Exception) {
+            AppLog.w("CPBL", "回應不是 JSON: " + txt.take(200).replace('\n', ' '))
+            null
+        }
+    }
+
+    /** 欄位名稱在官網沒有公開文件, 這裡依序嘗試多個可能的名稱 */
+    private fun JSONObject.firstStr(vararg keys: String): String {
+        for (k in keys) {
+            val v = opt(k)
+            if (v != null && v != JSONObject.NULL && v.toString().isNotEmpty()) return v.toString()
+        }
+        return ""
+    }
+
+    private fun cpblGames(date: LocalDate): List<JSONObject> {
+        val body = "calendar=" + URLEncoder.encode(date.format(DateTimeFormatter.ofPattern("yyyy/MM/dd")), "UTF-8") + "&location=&kindCode=A"
+        val o = cpblPost("/schedule/getgamedatas", body) ?: return emptyList()
+        val gd = o.opt("GameDatas")
+        val arr = try {
+            when (gd) {
+                is JSONArray -> gd
+                is String -> JSONArray(gd)
+                else -> null
+            }
+        } catch (_: Exception) {
+            null
+        }
+        if (arr == null) {
+            AppLog.w("CPBL", "賽程格式不符: " + o.toString().take(200))
+            return emptyList()
+        }
+        val out = ArrayList<JSONObject>()
+        for (i in 0 until arr.length()) out.add(arr.getJSONObject(i))
+        val d = date.format(DateTimeFormatter.ISO_LOCAL_DATE)
+        return out.filter { g -> g.firstStr("GameDate", "PreExeDate").startsWith(d) || true }
+    }
+
+    private fun cpblStart(g: JSONObject): Long = isoMs(g.firstStr("GameDateTimeS", "GameDateTime", "GameDate"))
+
+    private fun cpblStatus(g: JSONObject, start: Long): String {
+        val now = System.currentTimeMillis()
+        if (now < start) return "P"
+        val hasScore = g.firstStr("VisitingScore").isNotEmpty() && g.firstStr("HomeScore").isNotEmpty()
+        return if (now - start > 4 * 3600_000L && hasScore) "F" else "L"
+    }
+
+    private fun listCpbl(date: LocalDate): List<GameInfo> {
+        return cpblGames(date).map { g ->
+            val start = cpblStart(g)
+            val st = cpblStatus(g, start)
+            GameInfo(
+                "CPBL", "cpbl", g.firstStr("GameSno") + "@" + date.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                cpblName(g.firstStr("VisitingTeamName")), cpblName(g.firstStr("HomeTeamName")), start, st,
+                g.firstStr("VisitingScore").toIntOrNull(), g.firstStr("HomeScore").toIntOrNull()
+            )
+        }.sortedBy { it.startMs }
+    }
+
+    private fun fetchCpbl(t: Tracked): JSONObject? {
+        val sno = t.id.substringBefore('@')
+        val date = try {
+            LocalDate.parse(t.id.substringAfter('@'))
+        } catch (_: Exception) {
+            return null
+        }
+        val g = cpblGames(date).firstOrNull { it.firstStr("GameSno") == sno } ?: return null
+        val st = cpblStatus(g, cpblStart(g).let { if (it > 0) it else t.startMs })
+        val o = base(t, st)
+        if (st == "P") return o
+        o.put("as", g.firstStr("VisitingScore").toIntOrNull() ?: 0).put("hs", g.firstStr("HomeScore").toIntOrNull() ?: 0)
+        if (st == "L") {
+            val live = cpblPost("/box/getlive", "GameSno=$sno&Year=${date.year}&KindCode=A")
+            if (live != null) cpblApplyLive(live, o)
+        }
+        return o
+    }
+
+    /** 即時資訊: 盡力解析 (找不到的欄位就略過, 並把原始內容的開頭寫進記錄方便對照) */
+    private fun cpblApplyLive(live: JSONObject, o: JSONObject) {
+        var cur: JSONObject? = null
+        for (k in listOf("CurtGameDetailJson", "CurrentGameDetailJson", "GameDetailJson")) {
+            val v = live.opt(k) ?: continue
+            cur = try {
+                when (v) {
+                    is JSONObject -> v
+                    is JSONArray -> v.optJSONObject(0)
+                    is String -> if (v.trimStart().startsWith("[")) JSONArray(v).optJSONObject(0) else JSONObject(v)
+                    else -> null
+                }
+            } catch (_: Exception) {
+                null
+            }
+            if (cur != null) break
+        }
+        if (cur == null) {
+            AppLog.w("CPBL", "找不到即時欄位, 回應開頭: " + live.toString().take(300))
+            return
+        }
+        val cu: JSONObject = cur
+        val inn = cu.firstStr("InningSeq", "Inning", "InningNo").toIntOrNull()
+        if (inn != null) {
+            o.put("in", inn)
+            val side = cu.firstStr("VisitingHomeType", "HomeVisitingType")
+            o.put("hf", if (side == "2") 1 else 0)
+            o.put("tx", inn.toString() + "局")
+        }
+        cu.firstStr("BallCnt", "Ball").toIntOrNull()?.let { o.put("b", it) }
+        cu.firstStr("StrikeCnt", "Strike").toIntOrNull()?.let { o.put("s", it) }
+        cu.firstStr("OutCnt", "Out").toIntOrNull()?.let { o.put("o", it) }
+        fun on(vararg k: String): Boolean {
+            val v = cu.firstStr(*k)
+            return v.isNotEmpty() && v != "0" && v.lowercase() != "false" && v != "null"
+        }
+        var bs = 0
+        if (on("FirstBase", "FirstBaseman")) bs = bs or 1
+        if (on("SecondBase")) bs = bs or 2
+        if (on("ThirdBase")) bs = bs or 4
+        o.put("bs", bs)
+        cu.firstStr("HitterName", "BatterName", "Hitter").takeIf { it.isNotEmpty() }?.let { o.put("bt", it) }
+        cu.firstStr("PitcherName", "Pitcher").takeIf { it.isNotEmpty() }?.let { o.put("pt", it) }
+    }
+}
