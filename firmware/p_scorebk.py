@@ -3,7 +3,7 @@ from ui import *
 
 
 def main(self, c, sc):
-    self.lx, self.rx = 76, 84
+    self.lx, self.rx = 82, 90
     R = self.rx
     a, h = sc.get("a", "?"), sc.get("h", "?")
     live = sc.get("st") == "L"

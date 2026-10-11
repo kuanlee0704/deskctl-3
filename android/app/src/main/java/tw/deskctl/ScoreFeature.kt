@@ -62,7 +62,7 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
         seenVer = ScoreStore.version
         val l = ScoreStore.load(host.context)
         val arr = JSONArray()
-        for (t in l) arr.put(JSONArray().put(t.lg).put(t.a).put(t.h))
+        for (t in l) arr.put(JSONArray().put(t.lg).put(t.a).put(t.h).put(Teams.cn(t.lg, t.a)).put(Teams.cn(t.lg, t.h)))
         host.send(JSONObject().put("k", "games").put("l", arr))
         poll()
     }
@@ -94,6 +94,10 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
                     if (o.optString("st") == "L") live = true
                     sum[i] = describe(o)
                 }
+                // 這幾場剛確認過資料 (沒變動也算): 控制器用來顯示「距離上次更新」
+                val ok = JSONArray()
+                for (i in res.keys) ok.put(i)
+                if (ok.length() > 0) host.send(JSONObject().put("k", "scok").put("l", ok))
                 anyLive = live
                 summary = sum
                 version++

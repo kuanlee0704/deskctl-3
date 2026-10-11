@@ -112,6 +112,7 @@ class State:
         self.sys_t = 0
         self.msgs = []           # 手機通知: [編號, App, 標題, 內容, 收到時間ms, 未讀, 已標記]
         self.games = []          # 比分板: 手機設定追蹤的比賽 [(聯盟, 客隊, 主隊), ...] (順序 = 欄位編號)
+        self.score_t = {}        # 欄位編號 -> 最近一次更新的時間 (ms)
         self.scores = {}         # 欄位編號 -> 手機最新傳來的比分資料 (dict)
         self.msg_ev = None       # 新訊息 (App, 標題) , App 會轉成提示並喚醒螢幕
         self.act_ev = None       # (狀態, 名稱, 訊息) 最近一次手機回報, App 會轉成提示
@@ -237,7 +238,7 @@ class State:
         elif k == "layout":
             self.set_layout(m.get("m"), m.get("r"))
         elif k == "games":
-            self.games = [(str(x[0])[:6], str(x[1])[:8], str(x[2])[:8]) for x in m.get("l", []) if len(x) >= 3][:8]
+            self.games = [(str(x[0])[:6], str(x[1])[:8], str(x[2])[:8], str(x[3])[:16] if len(x) > 3 else "", str(x[4])[:16] if len(x) > 4 else "") for x in m.get("l", []) if len(x) >= 3][:8]
             for i in list(self.scores):
                 if i >= len(self.games):
                     del self.scores[i]
@@ -245,6 +246,10 @@ class State:
             i = m.get("i", -1)
             if 0 <= i < 8:
                 self.scores[i] = m
+                self.score_t[i] = now
+        elif k == "scok":                                       # 手機剛確認過這幾場的資料 (沒變動也算更新)
+            for i in m.get("l", []):
+                self.score_t[i] = now
         elif k == "msg":
             i = m.get("i", 0)
             old = [x for x in self.msgs if x[0] == i]

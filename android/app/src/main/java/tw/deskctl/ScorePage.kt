@@ -153,7 +153,7 @@ class ScorePage(private val act: Activity) {
         if (tracked.isEmpty()) tv(tc, "還沒有追蹤任何比賽, 從下方選擇。", 13f, cSub)
         for (i in tracked.indices) {
             val t = tracked[i]
-            tv(tc, (i + 1).toString() + ". [" + t.lg + "] " + t.a + " @ " + t.h + "  (" + fmt(t.startMs) + ")", 14f, cText, true).setPadding(0, dp(8), 0, 0)
+            tv(tc, (i + 1).toString() + ". [" + t.lg + "] " + Teams.label(t.lg, t.a) + " @ " + Teams.label(t.lg, t.h) + "  (" + fmt(t.startMs) + ")", 14f, cText, true).setPadding(0, dp(8), 0, 0)
             ScoreFeature.summary[i]?.let { tv(tc, "   " + it, 13f, cGood) }
             val r = row(tc)
             btn(r, "↑") { if (i > 0) { tracked.add(i - 1, tracked.removeAt(i)); save(); render() } }
@@ -200,7 +200,7 @@ class ScorePage(private val act: Activity) {
                 val box = LinearLayout(act)
                 box.orientation = LinearLayout.VERTICAL
                 r.addView(box, LinearLayout.LayoutParams(0, -2, 1f))
-                tv(box, x.a + " @ " + x.h, 16f, cText, true)
+                tv(box, Teams.label(x.lg, x.a) + " @ " + Teams.label(x.lg, x.h), 16f, cText, true)
                 val st = when (x.status) { "L" -> "進行中"; "F" -> "已結束"; else -> "未開賽" }
                 val stCol = when (x.status) { "L" -> cGood; "F" -> cSub; else -> cPrimary }
                 val l2 = tv(box, fmt(x.startMs) + "  " + st, 13f, stCol)

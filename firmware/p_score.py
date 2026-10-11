@@ -1,5 +1,6 @@
 """比分板: 手機 App 設定要追蹤的比賽 (NBA / MLB / CPBL), 手機抓資料傳來這裡顯示。
 左右: 切換比賽   上下: 主畫面 <-> 細節數據。"""
+import time
 from app import Page
 from keys import *
 from ui import *
@@ -29,6 +30,10 @@ class ScorePage(Page):
         self.view = 0
         self.lx = 70
         self.rx = 78
+        self._now = 0
+        self._anim = False
+        self._age = -1
+        self._mqs = {}
 
     def enter(self, now):
         Page.enter(self, now)
@@ -40,11 +45,44 @@ class ScorePage(Page):
     def on_reset(self, now):
         self.app.link.send({"c": "sync"})
 
+    def _age_s(self):
+        """進行中的比賽: 距離上次更新幾秒 (非進行中回傳 -1)"""
+        sc = self.st.scores.get(self.sel)
+        t = self.st.score_t.get(self.sel)
+        if not sc or t is None or sc.get("st") != "L":
+            return -1
+        return time.ticks_diff(self._now, t) // 1000
+
     def get_title(self):
         n = len(self.st.games)
         if not n:
             return "比分板"
-        return "%s %d/%d%s" % (self.st.games[min(self.sel, n - 1)][0], self.sel + 1, n, " 詳" if self.view else "")
+        a = self._age_s()
+        ag = ""
+        if a >= 0:
+            ag = " (:%02d)" % a if a < 60 else (" (%02d:)" % (a // 60) if a < 6000 else " (--)")
+        return "%s %d/%d%s%s" % (self.st.games[min(self.sel, n - 1)][0], self.sel + 1, n, " 詳" if self.view else "", ag)
+
+    def tick(self, now):
+        self._now = now
+        d = self.dirty or self._anim
+        a = self._age_s()
+        if a != self._age:
+            self._age = a
+            d = True
+        self.dirty = False
+        return d
+
+    def _txt(self, c, key, s, x, y, w, col):
+        """文字放得下就直接畫; 太長就在固定寬度內來回捲動 (像歌名)"""
+        if c.text_w(s) <= w:
+            c.text(s, x, y, col)
+            return
+        m = self._mqs.get(key)
+        if m is None or m.w != w:
+            m = self._mqs[key] = Marquee(self.app.mq[0].cv.font, w, col)
+        m.draw(c, x, y, s, self._now, BG, col)
+        self._anim = True
 
     def on_key(self, k, ev, now):
         n = len(self.st.games)
@@ -173,22 +211,23 @@ class ScorePage(Page):
         c.hline(2, 53, 156, FAINT)
         if sc.get("st") == "F":
             c.text("勝", 2, 55, GOOD)
-            c.text(clip_text(c, sc.get("wp") or "--", 70), 16, 55, FG)
-            if sc.get("sv"):
-                c.text_r("救 " + clip_text(c, sc["sv"], 60), 156, 55, WARN)
+            sv = sc.get("sv")
+            svw = 0
+            if sv:
+                svw = c.text_w("救 " + sv) + 4
+                c.text_r("救 " + sv, 156, 55, WARN)
+            self._txt(c, "wp", sc.get("wp") or "--", 16, 55, 138 - svw, FG)
             c.text("敗", 2, 67, BAD)
-            c.text(clip_text(c, sc.get("lp") or "--", 70), 16, 67, FG)
-            c.text_r("%d局" % sc.get("in", 9), 156, 67, DIM)
+            ex = "%d局" % sc.get("in", 9)
+            c.text_r(ex, 156, 67, DIM)
+            self._txt(c, "lp", sc.get("lp") or "--", 16, 67, 138 - c.text_w(ex) - 4, FG)
             return
         c.text("打", 2, 55, DIM)
-        t = sc.get("bt", "") or "--"
-        x = c.text(clip_text(c, t, 70), 16, 55, FG)
         ex = ((sc.get("bavg", "") + " " + sc["bhab"]).strip() if sc.get("bhab") or sc.get("bavg") else "")
         if ex:
             c.text_r(ex, 156, 55, FG)
+        self._txt(c, "bt", sc.get("bt", "") or "--", 16, 55, 138 - (c.text_w(ex) + 4 if ex else 0), FG)
         c.text("投", 2, 67, DIM)
-        t = sc.get("pt", "") or "--"
-        c.text(clip_text(c, t, 70), 16, 67, FG)
         ex = ""
         if sc.get("pc") is not None:
             ex = "%d球" % sc["pc"]
@@ -198,6 +237,7 @@ class ScorePage(Page):
                 ex += " %d責" % sc["per"]
         if ex:
             c.text_r(ex, 156, 67, FG)
+        self._txt(c, "pt", sc.get("pt", "") or "--", 16, 67, 138 - (c.text_w(ex) + 4 if ex else 0), FG)
 
     def _bk(self):
         import p_scorebk
@@ -213,7 +253,10 @@ class ScorePage(Page):
             return
         if self.sel >= n:
             self.sel = 0
-        lg, a, h = games[self.sel]
+        self._now = now
+        self._anim = False
+        g = games[self.sel]
+        lg, a, h = g[0], g[1], g[2]
         sc = self.st.scores.get(self.sel)
         if not sc:
             c.text("%s  vs  %s" % (a, h), 6, 22, FG)
@@ -224,3 +267,6 @@ class ScorePage(Page):
             self.base_detail(c, sc) if base else self._bk().detail(self, c, sc)
         else:
             self.base_main(c, sc) if base else self._bk().main(self, c, sc)
+            # 左下角一排: 中文隊名 (客 v 主), 太長就捲動
+            na, nh = g[3] or a, g[4] or h
+            self._txt(c, "tm", "%s v %s" % (na, nh), 2, 68, self.lx - 2, DIM)
