@@ -324,7 +324,7 @@ r.click(K_CENTER); snap(r, "msg marked detail")
 r = mk(); r.app.go("score", clock.now); r.run(100); snap(r, "score empty")
 r.msg(k="games", l=[["MLB", "NYY", "BOS"], ["NBA", "LAL", "GSW"], ["CPBL", "樂天", "統一"], ["MLB", "SF", "LAD"]]); r.run(100)
 snap(r, "score waiting")
-base_live = dict(k="score", i=0, lg="MLB", st="L", a="NYY", h="BOS", **{"as": 12, "hs": 3}, **{"in": 10, "hf": 1, "tx": "10局", "b": 3, "s": 2, "o": 2, "bs": 7, "ah": 14, "hh": 5, "ae": 1, "he": 0, "bt": "Judge-Longname", "pt": "Crochet", "bavg": ".312", "bhab": "2-4", "pc": 87, "pip": "5.1", "per": 2, "ai": [0, 1, 0, 0, 3, 0, 5, 0, 0, 3], "hi": [0, 0, 1, 0, 0, 2, 0, 0, 0]})
+base_live = dict(k="score", i=0, lg="MLB", st="L", a="NYY", h="BOS", **{"as": 12, "hs": 3}, **{"in": 10, "hf": 1, "tx": "10局", "b": 3, "s": 2, "o": 2, "bs": 7, "ah": 14, "hh": 5, "ae": 1, "he": 0, "bt": "Judge-Longname", "pt": "Crochet", "bavg": ".312", "bhab": "2-4", "pc": 87, "wp": "Crochet", "lp": "Fedde-LongName", "sv": "Clase-Long", "pip": "5.1", "per": 2, "ai": [0, 1, 0, 0, 3, 0, 5, 0, 0, 3], "hi": [0, 0, 1, 0, 0, 2, 0, 0, 0]})
 for bs in (0, 1, 2, 4, 7):
     for st in ("L", "P", "F"):
         d = dict(base_live, bs=bs, st=st, tm="10/12 19:10")

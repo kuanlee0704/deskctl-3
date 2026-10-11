@@ -27,6 +27,8 @@ class ScorePage(Page):
         Page.__init__(self, app)
         self.sel = 0
         self.view = 0
+        self.lx = 70
+        self.rx = 78
 
     def enter(self, now):
         Page.enter(self, now)
@@ -80,26 +82,29 @@ class ScorePage(Page):
             else:
                 c.text(nm, 4, y + 6, nc)
             st = str(s) if s is not None else "-"
-            c.text_big(st, 86 - len(st) * 12, y, col, 2, 6)
-        c.hline(4, 41, 82, FAINT)
-        c.vline(89, 14, 66, FAINT)
+            c.text_big(st, self.lx - len(st) * 12, y, col, 2, 6)
+        c.hline(4, 41, self.lx - 4, FAINT)
+        c.vline(self.lx + 3, 14, 66, FAINT)
 
     def _pre_final(self, c, sc):
         """未開賽的右側資訊 (日期+開賽時間); 回傳 True 表示已處理"""
+        R = self.rx
         if sc.get("st") == "P":
             tm = sc.get("tm", "--:--")
             d, _, t = tm.rpartition(" ")
-            c.text("未開賽", 94, 14, ACC)
+            c.text("未開賽", R, 14, ACC)
             if d:
-                c.text(d, 94, 28, FG)
-            c.text_big(t, 94, 42, FG, 2, 6) if len(t) <= 5 else c.text(t, 94, 46, FG)
+                c.text(d, R, 28, FG)
+            c.text_big(t, R, 42, FG, 2, 6) if len(t) <= 5 else c.text(t, R, 46, FG)
             return True
         if sc.get("st") == "F":
-            c.text("比賽結束", 94, 14, ACC)
+            c.text("比賽結束", R, 14, ACC)
         return False
 
     # ---------- 棒球 ----------
     def base_main(self, c, sc):
+        self.lx, self.rx = 70, 78
+        R = self.rx
         a, h = sc.get("a", "?"), sc.get("h", "?")
         aS, hS = sc.get("as"), sc.get("hs")
         st = sc.get("st")
@@ -111,37 +116,34 @@ class ScorePage(Page):
         if self._pre_final(c, sc):
             return
         if st == "F":
-            c.text("%d局" % sc.get("in", 9), 94, 28, FG)
-            c.text("安打 %d:%d" % (sc.get("ah", 0), sc.get("hh", 0)), 94, 42, DIM)
-            c.text("失誤 %d:%d" % (sc.get("ae", 0), sc.get("he", 0)), 94, 56, DIM)
+            c.text("%d局" % sc.get("in", 9), R, 28, FG)
+            c.text("安打 %d:%d" % (sc.get("ah", 0), sc.get("hh", 0)), R, 42, DIM)
+            c.text("失誤 %d:%d" % (sc.get("ae", 0), sc.get("he", 0)), R, 56, DIM)
             return
         inn = sc.get("in", 1)
         tx = sc.get("tx") or ("%d局" % inn)
-        c.text(tx, 94, 14, ACC)
+        c.text(tx, R, 14, ACC)
         w = c.text_w(tx)
         if not sc.get("mid"):
-            c.icon(IC["down" if sc.get("hf", 0) else "up"], 94 + w + 3, 18, ACC)
+            c.icon(IC["down" if sc.get("hf", 0) else "up"], R + w + 3, 18, ACC)
         bs = sc.get("bs", 0)
-        cx, cy = 143, 36
+        cx, cy = R + 66, 36
         diamond(c, cx, cy - 8, 4, WARN if bs & 2 else FAINT, bs & 2)
         diamond(c, cx + 9, cy + 1, 4, WARN if bs & 1 else FAINT, bs & 1)
         diamond(c, cx - 9, cy + 1, 4, WARN if bs & 4 else FAINT, bs & 4)
         # 好壞球 / 出局: 小方塊
         for k, (lab, v, mx, col) in enumerate((("B", sc.get("b", 0), 4, GOOD), ("S", sc.get("s", 0), 3, WARN), ("O", sc.get("o", 0), 3, BAD))):
             y = 27 + k * 10
-            c.text(lab, 94, y - 3, DIM)
+            c.text(lab, R, y - 3, DIM)
             for i in range(mx):
-                c.frect(104 + i * 7, y, 5, 5, col if i < v else FAINT)
-        # 打者 / 投手 (簡短版)
-        bt = ""
+                c.frect(R + 12 + i * 9, y, 6, 6, col if i < v else FAINT)
+        # 打者 / 投手 (簡短版; 姓名在細節頁)
         if sc.get("bavg"):
-            bt = sc.get("bavg", "") + (" " + sc["bhab"] if sc.get("bhab") else "")
-        if bt:
-            c.text("打", 94, 56, DIM)
-            c.text(clip_text(c, bt, 50), 108, 56, FG)
+            c.text("打", R, 56, DIM)
+            c.text(sc.get("bavg", "") + (" " + sc["bhab"] if sc.get("bhab") else ""), R + 16, 56, FG)
         if sc.get("pc") is not None:
-            c.text("投", 94, 68, DIM)
-            c.text("%d球" % sc["pc"], 108, 68, FG)
+            c.text("投", R, 68, DIM)
+            c.text("%d球" % sc["pc"] + (" %s局" % sc["pip"] if sc.get("pip") else ""), R + 16, 68, FG)
 
     def base_detail(self, c, sc):
         a, h = sc.get("a", "?"), sc.get("h", "?")
@@ -169,6 +171,15 @@ class ScorePage(Page):
             c.text_c(str(H), 138, y, FG)
             c.text_c(str(E), 150, y, WARN if E else DIM)
         c.hline(2, 53, 156, FAINT)
+        if sc.get("st") == "F":
+            c.text("勝", 2, 55, GOOD)
+            c.text(clip_text(c, sc.get("wp") or "--", 70), 16, 55, FG)
+            if sc.get("sv"):
+                c.text_r("救 " + clip_text(c, sc["sv"], 60), 156, 55, WARN)
+            c.text("敗", 2, 67, BAD)
+            c.text(clip_text(c, sc.get("lp") or "--", 70), 16, 67, FG)
+            c.text_r("%d局" % sc.get("in", 9), 156, 67, DIM)
+            return
         c.text("打", 2, 55, DIM)
         t = sc.get("bt", "") or "--"
         x = c.text(clip_text(c, t, 70), 16, 55, FG)
@@ -188,61 +199,9 @@ class ScorePage(Page):
         if ex:
             c.text_r(ex, 156, 67, FG)
 
-    # ---------- 籃球 ----------
-    def bask_main(self, c, sc):
-        a, h = sc.get("a", "?"), sc.get("h", "?")
-        live = sc.get("st") == "L"
-        sub = None
-        if live or sc.get("st") == "F":
-            sub = ("犯%d 暫%d" % (sc.get("af", 0), sc.get("at", 0)), "犯%d 暫%d" % (sc.get("hf2", 0), sc.get("ht", 0)))
-        self._teams(c, sc, a, h, sc.get("as", 0), sc.get("hs", 0), -1, live, sub)
-        if self._pre_final(c, sc):
-            return
-        q = sc.get("q", 1)
-        if sc.get("st") == "F":
-            c.text("第%d節" % q if q <= 4 else "加時賽", 94, 30, FG)
-            c.text("犯規 %d:%d" % (sc.get("af", 0), sc.get("hf2", 0)), 94, 44, DIM)
-            return
-        c.text(("第%d節" % q) if q <= 4 else ("加時%d" % (q - 4)), 94, 14, ACC)
-        clk = sc.get("c", "")
-        low = clk and ":" in clk and clk.split(":")[0] == "0"
-        if sc.get("brk"):
-            c.text("休息", 94, 34, WARN)
-        else:
-            c.text_big(clk or "--", 94, 28, WARN if low else FG, 2, 0)
-        mk = lambda b: "*" if b else ""
-        c.text("犯規 %d%s/%d%s" % (sc.get("af", 0), mk(sc.get("ab")), sc.get("hf2", 0), mk(sc.get("hb"))), 94, 54, FG)
-        c.text("暫停 %d/%d" % (sc.get("at", 0), sc.get("ht", 0)), 94, 66, DIM)
-
-    def bask_detail(self, c, sc):
-        a, h = sc.get("a", "?"), sc.get("h", "?")
-        aq, hq = sc.get("aq", []), sc.get("hq", [])
-        cols = (32, 52, 72, 92)
-        for i, x in enumerate(cols):
-            c.text_c("Q%d" % (i + 1), x + 8, 14, FAINT)
-        c.text_c("OT", 120, 14, FAINT)
-        c.text_c("總", 148, 14, ACC)
-        for r, (nm, arr, T) in enumerate(((a, aq, sc.get("as", 0)), (h, hq, sc.get("hs", 0)))):
-            y = 27 + r * 13
-            c.text(nm, 2, y, FG)
-            for i, x in enumerate(cols):
-                if i < len(arr):
-                    c.text_c(str(arr[i]), x + 8, y, FG)
-                else:
-                    c.text_c("-", x + 8, y, FAINT)
-            ot = sum(arr[4:]) if len(arr) > 4 else 0
-            c.text_c(str(ot) if len(arr) > 4 else "-", 120, y, FG if ot else FAINT)
-            c.text_c(str(T), 148, y, GOOD)
-        c.hline(2, 53, 156, FAINT)
-        c.text("犯規 %d:%d" % (sc.get("af", 0), sc.get("hf2", 0)), 4, 55, FG)
-        c.text_r("暫停 %d:%d" % (sc.get("at", 0), sc.get("ht", 0)), 156, 55, FG)
-        bon = []
-        if sc.get("ab"):
-            bon.append(a)
-        if sc.get("hb"):
-            bon.append(h)
-        c.text("罰球加成", 4, 67, DIM)
-        c.text_r(" ".join(bon) if bon else "無", 156, 67, WARN if bon else FAINT)
+    def _bk(self):
+        import p_scorebk
+        return p_scorebk
 
     def draw(self, c, now):
         games = self.st.games
@@ -262,6 +221,6 @@ class ScorePage(Page):
             return
         base = lg in ("MLB", "CPBL")
         if self.view and sc.get("st") != "P":
-            (self.base_detail if base else self.bask_detail)(c, sc)
+            self.base_detail(c, sc) if base else self._bk().detail(self, c, sc)
         else:
-            (self.base_main if base else self.bask_main)(c, sc)
+            self.base_main(c, sc) if base else self._bk().main(self, c, sc)

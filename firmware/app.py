@@ -173,13 +173,29 @@ class App:
             info = registry.info(pid)
             if info is None:
                 return None
-            mod = __import__(info[2])
+            gc.collect()
+            try:
+                mod = __import__(info[2])
+            except MemoryError:
+                self._evict(pid)
+                mod = __import__(info[2])
             p = getattr(mod, info[3])(self)
             p.id = pid
             if not p.title:
                 p.title = info[1]
             self.insts[pid] = p
         return p
+
+    def _evict(self, keep):
+        """記憶體不足時: 丟掉不在使用中的頁面 (與其程式碼), 騰出空間給新頁面載入。碼表要保留 (計時中)"""
+        for pid in list(self.insts):
+            if pid in (keep, "home", "sw", "menu") or self.insts[pid] is self.cur:
+                continue
+            del self.insts[pid]
+            info = registry.info(pid)
+            if info and info[2] in sys.modules:
+                del sys.modules[info[2]]
+        gc.collect()
 
     def go(self, pid, now=None):
         if now is None:

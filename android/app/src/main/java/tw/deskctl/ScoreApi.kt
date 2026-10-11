@@ -190,7 +190,7 @@ object ScoreApi {
 
     private fun fetchMlb(ts: List<Tracked>): Map<String, JSONObject> {
         val ids = ts.joinToString(",") { it.id }
-        val games = mlbGames("https://statsapi.mlb.com/api/v1/schedule?sportId=1&gamePks=$ids&hydrate=team,linescore")
+        val games = mlbGames("https://statsapi.mlb.com/api/v1/schedule?sportId=1&gamePks=$ids&hydrate=team,linescore,decisions")
         val out = HashMap<String, JSONObject>()
         for (g in games) {
             try {
@@ -204,6 +204,12 @@ object ScoreApi {
                 if (st != "P") {
                     o.put("as", aw.optInt("score", ls?.optJSONObject("teams")?.optJSONObject("away")?.optInt("runs") ?: 0))
                     o.put("hs", hm.optInt("score", ls?.optJSONObject("teams")?.optJSONObject("home")?.optInt("runs") ?: 0))
+                }
+                if (st == "F") {
+                    val dc = g.optJSONObject("decisions")
+                    dc?.optJSONObject("winner")?.optString("fullName")?.let { o.put("wp", lastName(it)) }
+                    dc?.optJSONObject("loser")?.optString("fullName")?.let { o.put("lp", lastName(it)) }
+                    dc?.optJSONObject("save")?.optString("fullName")?.let { o.put("sv", lastName(it)) }
                 }
                 if (ls != null && st != "P") {
                     val inn = ls.optInt("currentInning", 1)
@@ -397,6 +403,9 @@ object ScoreApi {
         else -> "P"
     }
 
+    /** ESPN 的時間格式是 2026-10-12T02:00Z (沒有秒), Instant.parse 讀不了, 補上秒 */
+    private fun espnMs(s: String): Long = isoMs(if (s.length == 17 && s.endsWith("Z")) s.dropLast(1) + ":00Z" else s)
+
     private fun listEspnNba(date: LocalDate): List<GameInfo> {
         val out = ArrayList<GameInfo>()
         val seen = HashSet<String>()
@@ -404,7 +413,7 @@ object ScoreApi {
             for (ev in espnEvents(d.format(DateTimeFormatter.BASIC_ISO_DATE))) {
                 val id = ev.optString("id")
                 if (!seen.add(id)) continue
-                val start = isoMs(ev.optString("date").let { if (it.length == 17) it + ":00Z" else it })
+                val start = espnMs(ev.optString("date"))
                 if (Instant.ofEpochMilli(start).atZone(TPE).toLocalDate() != date) continue
                 val h = espnComp(ev, true)
                 val a = espnComp(ev, false)
