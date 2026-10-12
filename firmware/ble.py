@@ -63,7 +63,7 @@ class Link:
         self._resp = _adv_field(0x07, bytes(bluetooth.UUID(_NUS)))
         self.conn = None
         self.mtu = 23
-        self._rxbuf = b""
+        self._rxbuf = bytearray()
         self._txq = []
         self.last_rx = 0
         self.ever_rx = False
@@ -104,7 +104,7 @@ class Link:
             self.mtu = 23
             self.ever_rx = False
             self._txq = []
-            self._rxbuf = b""
+            self._rxbuf = bytearray()
         elif ev == _DISCONNECT:
             self.n_disc += 1
             self.last_up = time.ticks_diff(time.ticks_ms(), self.t_conn) // 1000
@@ -119,21 +119,23 @@ class Link:
                 if len(self._rxbuf) + len(chunk) < 4096:
                     self._rxbuf += chunk
                 else:
-                    self._rxbuf = b""
+                    self._rxbuf = bytearray()
         elif ev == _MTU:
             self.mtu = data[1]
 
     # ---- 收 ----
     def poll(self, now):
         """回傳手機傳來的訊息 (dict list)"""
-        if b"\n" not in self._rxbuf:
+        buf = self._rxbuf
+        if buf.find(b"\n") < 0:
             return ()
         out = []
-        buf = self._rxbuf
-        self._rxbuf = b""
-        parts = buf.split(b"\n")
-        self._rxbuf = parts.pop()          # 最後一段是未完成的
-        for p in parts:
+        while True:                         # 就地切出每一行, 不複製整個緩衝區 (省記憶體)
+            i = buf.find(b"\n")
+            if i < 0:
+                break
+            p = bytes(buf[:i])
+            del buf[:i + 1]
             if not p:
                 continue
             try:

@@ -1,4 +1,5 @@
 """全域狀態: 設定、手機資訊、時間、碼表。"""
+import gc
 import time
 try:
     import ujson as json
@@ -78,6 +79,13 @@ PL_NONE, PL_PLAY, PL_PAUSE = 0, 1, 2
 RT_NONE, RT_SPK, RT_BT, RT_WIRED = 0, 1, 2, 3
 
 
+LITE = ("lg", "st", "a", "h", "as", "hs", "in", "hf", "tx", "mid", "tm", "q", "c", "brk", "tn")
+
+
+def lite(m):
+    return {k: m[k] for k in LITE if k in m}
+
+
 class State:
     def __init__(self):
         self.cfg = Settings()
@@ -112,6 +120,8 @@ class State:
         self.sys_t = 0
         self.msgs = []           # 手機通知: [編號, App, 標題, 內容, 收到時間ms, 未讀, 已標記]
         self.games = []          # 比分板: 手機設定追蹤的比賽 [(聯盟, 客隊, 主隊), ...] (順序 = 欄位編號)
+        self.sc_sel = -1         # 控制器正在看的比賽欄位 (-1 = 沒在比分頁)
+        self.clk_t = {}          # 欄位編號 -> 收到計時資料的時間 (籃球計時器往下推算用)
         self.score_t = {}        # 欄位編號 -> 最近一次更新的時間 (ms)
         self.scores = {}         # 欄位編號 -> 手機最新傳來的比分資料 (dict)
         self.msg_ev = None       # 新訊息 (App, 標題) , App 會轉成提示並喚醒螢幕
@@ -121,6 +131,14 @@ class State:
         self.sw_t = 0
         self.sw_acc = 0
         self.sw_laps = []
+
+    def set_sel(self, i):
+        """比分頁: 設定正在看的比賽; 其他比賽的資料縮成精簡版"""
+        self.sc_sel = i
+        for j in list(self.scores):
+            if j != i:
+                self.scores[j] = lite(self.scores[j])
+        gc.collect()
 
     def unread(self):
         n = 0
@@ -238,15 +256,21 @@ class State:
         elif k == "layout":
             self.set_layout(m.get("m"), m.get("r"))
         elif k == "games":
-            self.games = [(str(x[0])[:6], str(x[1])[:8], str(x[2])[:8], str(x[3])[:16] if len(x) > 3 else "", str(x[4])[:16] if len(x) > 4 else "") for x in m.get("l", []) if len(x) >= 3][:8]
+            self.games = [(str(x[0])[:6], str(x[1])[:8], str(x[2])[:8]) for x in m.get("l", []) if len(x) >= 3][:8]
             for i in list(self.scores):
                 if i >= len(self.games):
                     del self.scores[i]
         elif k == "score":
             i = m.get("i", -1)
             if 0 <= i < 8:
+                if i != self.sc_sel:                            # 沒在看的比賽只留精簡欄位, 省記憶體
+                    m = lite(m)
                 self.scores[i] = m
                 self.score_t[i] = now
+                if "cs" in m:
+                    self.clk_t[i] = now
+                if i == self.sc_sel and len(m) > 12:             # 完整資料剛解析完, 馬上整理掉解析產生的垃圾
+                    gc.collect()
         elif k == "scok":                                       # 手機剛確認過這幾場的資料 (沒變動也算更新)
             for i in m.get("l", []):
                 self.score_t[i] = now

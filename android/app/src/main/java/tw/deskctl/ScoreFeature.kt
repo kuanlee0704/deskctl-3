@@ -17,8 +17,12 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
     private var lastPoll = 0L
     private var running = false
     private var anyLive = false
+    private var selNbaLive = false
     private var seenVer = -1
     private var stopped = false
+    private var sel = 0               // 控制器正在看的欄位
+    private var forceSel = false      // 剛換場: 下一次要把完整資料硬送一次 (控制器會把沒在看的比賽縮成精簡版)
+    private var rerun = false
 
     companion object {
         /** 給手機畫面顯示: 追蹤中每場的即時摘要 (欄位編號 → 文字) */
@@ -42,14 +46,18 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
 
     override fun onTick(n: Int) {
         if (seenVer != ScoreStore.version) pushGames()
-        val iv = if (boardOn) 8000L else if (anyLive) 30000L else 180000L
+        val iv = if (boardOn) (if (selNbaLive) 4000L else 8000L) else if (anyLive) 30000L else 180000L
         if (SystemClock.elapsedRealtime() - lastPoll >= iv) poll()
     }
 
     override fun onCommand(c: String, o: JSONObject): Boolean {
         if (c != "sc") return false
         boardOn = o.optInt("on") == 1
-        if (boardOn) poll()
+        if (boardOn) {
+            sel = o.optInt("sel", 0)
+            forceSel = true
+            if (running) rerun = true else poll()
+        }
         return true
     }
 
@@ -62,7 +70,7 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
         seenVer = ScoreStore.version
         val l = ScoreStore.load(host.context)
         val arr = JSONArray()
-        for (t in l) arr.put(JSONArray().put(t.lg).put(t.a).put(t.h).put(Teams.cn(t.lg, t.a)).put(Teams.cn(t.lg, t.h)))
+        for (t in l) arr.put(JSONArray().put(t.lg).put(t.a).put(t.h))
         host.send(JSONObject().put("k", "games").put("l", arr))
         poll()
     }
@@ -79,7 +87,7 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
         running = true
         Thread {
             val res = try {
-                ScoreApi.fetch(l)
+                ScoreApi.fetch(l, sel, boardOn)
             } catch (e: Exception) {
                 AppLog.w("SCORE", "抓取失敗: $e")
                 emptyMap()
@@ -89,8 +97,15 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
                 if (stopped) return@post
                 var live = false
                 val sum = HashMap<Int, String>()
-                for ((i, o) in res) {
-                    host.sendIfChanged("score$i", o)
+                val force = forceSel
+                forceSel = false
+                selNbaLive = false
+                for ((i0, o0) in res) {
+                    val i = i0
+                    // 中文隊名在手機端組好 (tn); 非選取中的欄位只送精簡欄位, 減輕控制器記憶體負擔
+                    val o = if (boardOn && i == sel) o0 else liteOf(o0)
+                    if (force && i == sel) host.send(o) else host.sendIfChanged("score$i", o)
+                    if (i == sel && o.optString("lg") == "NBA" && o.optString("st") == "L") selNbaLive = true
                     if (o.optString("st") == "L") live = true
                     sum[i] = describe(o)
                 }
@@ -101,6 +116,10 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
                 anyLive = live
                 summary = sum
                 version++
+                if (rerun) {
+                    rerun = false
+                    poll()
+                }
             }
         }.start()
     }
@@ -113,5 +132,13 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
         } else {
             (o.optString("tx").ifEmpty { o.optInt("in").toString() + "局" }) + "  " + o.optInt("as") + ":" + o.optInt("hs")
         }
+    }
+
+    private val LITE = listOf("lg", "st", "a", "h", "as", "hs", "in", "hf", "tx", "mid", "tm", "q", "c", "brk", "tn")
+
+    private fun liteOf(o: JSONObject): JSONObject {
+        val r = JSONObject()
+        for (k in LITE) if (o.has(k)) r.put(k, o.get(k))
+        return r
     }
 }

@@ -1,23 +1,13 @@
-"""比分板: 手機 App 設定要追蹤的比賽 (NBA / MLB / CPBL), 手機抓資料傳來這裡顯示。
-左右: 切換比賽   上下: 主畫面 <-> 細節數據。"""
+"""比分板核心: 選比賽、切換畫面、標題、捲動文字。畫面本身在 p_scorebb(棒球) / p_scorebk(籃球), 需要時才載入。
+左右: 切換比賽   上下: 切換畫面 (棒球進行中 4 頁: 主畫面/細節/即時/戰績; 其他 2 頁)。"""
+import sys
 import time
+import gc
 from app import Page
 from keys import *
 from ui import *
 
-
-def diamond(c, cx, cy, r, col, fill):
-    for dy in range(-r, r + 1):
-        w = r - abs(dy)
-        if fill:
-            c.frect(cx - w, cy + dy, 2 * w + 1, 1, col)
-        else:
-            c.pixel(cx - w, cy + dy, col)
-            c.pixel(cx + w, cy + dy, col)
-
-
-def num(v):
-    return str(v) if v < 10 else "+"
+BASE = ("MLB", "CPBL")
 
 
 class ScorePage(Page):
@@ -33,21 +23,106 @@ class ScorePage(Page):
         self._now = 0
         self._anim = False
         self._age = -1
+        self._clk = -1
+        self._mqs = {}
+        self._m = None
+        self._mn = ""
+        self._s = None
+        self._sn = ""
+        self._fail = 0
+
+    # ---------- 進出 ----------
+    def _tell(self):
+        self.app.link.send({"c": "sc", "on": 1, "sel": self.sel})
+        self.st.set_sel(self.sel)
         self._mqs = {}
 
     def enter(self, now):
         Page.enter(self, now)
-        self.app.link.send({"c": "sc", "on": 1})       # 通知手機: 比分頁開著, 請加快更新
+        self._tell()
 
     def leave(self):
         self.app.link.send({"c": "sc", "on": 0})
+        self.st.set_sel(-1)
+        self._drop()
+
+    def _drop(self):
+        if self._mn:
+            sys.modules.pop(self._mn, None)
+        self._m = None
+        self._mn = ""
+        self._mqs = {}
+        self._subdrop(False)
+        sys.modules.pop("p_scoret", None)
+        gc.collect()
+
+    def _subdrop(self, collect=True):
+        if self._sn:
+            sys.modules.pop(self._sn, None)
+            self._s = None
+            self._sn = ""
+            if collect:
+                gc.collect()
+
+    def _sub(self, name):
+        """第二層模組 (棒球即時/戰績); 只在需要的那兩頁載入, 回到別頁就卸載。載入失敗回傳 None"""
+        if self._sn != name:
+            try:
+                gc.collect()
+                self._s = __import__(name)
+                self._sn = name
+            except MemoryError:
+                self._s = None
+                return None
+        return self._s
+
+    def _mod(self, name):
+        """載入畫面模組; 記憶體不足就先丟掉別的頁面再試, 還是不行就回傳 None (畫面顯示提示, 不會每一幀都重試)"""
+        if self._mn != name:
+            if self._fail and time.ticks_diff(self._now, self._fail) < 3000:
+                return None
+            self._drop()
+            try:
+                try:
+                    self._m = __import__(name)
+                except MemoryError:
+                    self.app._evict("score")
+                    self._m = __import__(name)
+                self._mn = name
+                self._fail = 0
+            except MemoryError:
+                self._m = None
+                self._fail = self._now or 1
+                return None
+        return self._m
 
     def on_reset(self, now):
         self.app.link.send({"c": "sync"})
 
+    # ---------- 狀態 ----------
+    def _sc(self):
+        return self.st.scores.get(self.sel)
+
+    def _nv(self):
+        """目前這場比賽有幾個畫面"""
+        sc = self._sc()
+        n = len(self.st.games)
+        if not sc or not n:
+            return 1
+        lg = self.st.games[min(self.sel, n - 1)][0]
+        s = sc.get("st")
+        if lg == "MLB":
+            return 4 if s == "L" else 2
+        if lg == "CPBL":
+            return 1 if s == "P" else 2
+        return 1 if s == "P" else 2
+
+    def _v(self):
+        return self.view if self.view < self._nv() else 0
+
     def _age_s(self):
         """進行中的比賽: 距離上次更新幾秒 (非進行中回傳 -1)"""
-        sc = self.st.scores.get(self.sel)
+        sc = self._sc()
         t = self.st.score_t.get(self.sel)
         if not sc or t is None or sc.get("st") != "L":
             return -1
@@ -61,7 +136,23 @@ class ScorePage(Page):
         ag = ""
         if a >= 0:
             ag = " (:%02d)" % a if a < 60 else (" (%02d:)" % (a // 60) if a < 6000 else " (--)")
-        return "%s %d/%d%s%s" % (self.st.games[min(self.sel, n - 1)][0], self.sel + 1, n, " 詳" if self.view else "", ag)
+        v = self._v()
+        sc = self._sc()
+        vl = ""
+        if v:
+            vl = " 即" if v == 2 else (" 戰" if v == 3 else (" 先" if sc and sc.get("st") == "P" else " 詳"))
+        return "%s %d/%d%s%s" % (self.st.games[min(self.sel, n - 1)][0], self.sel + 1, n, vl, ag)
+
+    # ---------- 籃球計時器: 手機每幾秒給一次剩餘時間, 中間在這裡往下推算 ----------
+    def clk(self, sc, now):
+        """剩餘時間 (0.1 秒); 沒有計時資料回傳 -1"""
+        cs = sc.get("cs")
+        if cs is None:
+            return -1
+        d = 0
+        if sc.get("cr"):
+            d = min(time.ticks_diff(now, self.st.clk_t.get(self.sel, now)), 20000) // 100
+        return cs - d if cs > d else 0
 
     def tick(self, now):
         self._now = now
@@ -70,19 +161,15 @@ class ScorePage(Page):
         if a != self._age:
             self._age = a
             d = True
+        sc = self._sc()
+        if sc and sc.get("st") == "L" and "cs" in sc and not sc.get("brk"):
+            r = self.clk(sc, now)
+            k = r // 10 if r >= 600 else r + 10000        # 一分鐘以上每秒更新, 最後一分鐘每 0.1 秒
+            if k != self._clk:
+                self._clk = k
+                d = True
         self.dirty = False
         return d
-
-    def _txt(self, c, key, s, x, y, w, col):
-        """文字放得下就直接畫; 太長就在固定寬度內來回捲動 (像歌名)"""
-        if c.text_w(s) <= w:
-            c.text(s, x, y, col)
-            return
-        m = self._mqs.get(key)
-        if m is None or m.w != w:
-            m = self._mqs[key] = Marquee(self.app.mq[0].cv.font, w, col)
-        m.draw(c, x, y, s, self._now, BG, col)
-        self._anim = True
 
     def on_key(self, k, ev, now):
         n = len(self.st.games)
@@ -90,158 +177,35 @@ class ScorePage(Page):
         if k in (K_LEFT, K_RIGHT) and n > 1:
             if ev == EV_CLICK:
                 self.sel = (self.sel + (1 if k == K_RIGHT else -1)) % n
+                self._tell()
                 return True
             if ev in (EV_PRESS, EV_RELEASE, EV_DOUBLE, EV_TRIPLE, EV_LONG, EV_HOLD):
                 return True
         if k in (K_UP, K_DOWN):
             if ev == EV_CLICK:
-                self.view = 1 - self.view
+                nv = self._nv()
+                self.view = (self._v() + (1 if k == K_UP else -1)) % nv
+                self._mqs = {}
                 return True
             return ev in (EV_PRESS, EV_RELEASE, EV_DOUBLE, EV_TRIPLE, EV_LONG, EV_HOLD)
         return False
 
-    # ---------- 共用 ----------
-    def _teams(self, c, sc, a, h, aS, hS, bat=-1, live=True, sub=None):
-        """左側兩列: 隊名 + 大比分。bat: 0=客隊攻擊 1=主隊攻擊 (棒球)。sub: 兩隊各一行小字 (隊名下方)"""
-        done = sc.get("st") == "F"
-        for r, (nm, s, o) in enumerate(((a, aS, hS), (h, hS, aS))):
-            y = 15 + r * 27
-            col = FG
-            if done:
-                col = GOOD if s > o else DIM
-            elif live and s < o:
-                col = DIM
-            if bat == r:
-                c.frect(0, y + 4, 2, 16, ACC)
-            nc = FG if bat == r or not live else col
-            if sub:
-                c.text(nm, 4, y + 1, nc)
-                c.text(sub[r], 4, y + 13, DIM)
-            else:
-                c.text(nm, 4, y + 6, nc)
-            st = str(s) if s is not None else "-"
-            c.text_big(st, self.lx - len(st) * 12, y, col, 2, 6)
-        c.hline(4, 41, self.lx - 4, FAINT)
-        c.vline(self.lx + 3, 14, 66, FAINT)
-
-    def _pre_final(self, c, sc):
-        """未開賽的右側資訊 (日期+開賽時間); 回傳 True 表示已處理"""
-        R = self.rx
-        if sc.get("st") == "P":
-            tm = sc.get("tm", "--:--")
-            d, _, t = tm.rpartition(" ")
-            c.text("未開賽", R, 14, ACC)
-            if d:
-                c.text(d, R, 28, FG)
-            c.text_big(t, R, 42, FG, 2, 6) if len(t) <= 5 else c.text(t, R, 46, FG)
-            return True
-        if sc.get("st") == "F":
-            c.text("比賽結束", R, 14, ACC)
-        return False
-
-    # ---------- 棒球 ----------
-    def base_main(self, c, sc):
-        self.lx, self.rx = 70, 78
-        R = self.rx
-        a, h = sc.get("a", "?"), sc.get("h", "?")
-        aS, hS = sc.get("as"), sc.get("hs")
-        st = sc.get("st")
-        bat = (sc.get("hf", 0)) if st == "L" else -1
-        sub = None
-        if st in ("L", "F"):
-            sub = ("H%d E%d" % (sc.get("ah", 0), sc.get("ae", 0)), "H%d E%d" % (sc.get("hh", 0), sc.get("he", 0)))
-        self._teams(c, sc, a, h, aS if aS is not None else 0, hS if hS is not None else 0, bat, st == "L", sub)
-        if self._pre_final(c, sc):
+    # ---------- 共用畫法 ----------
+    def _txt(self, c, key, s, x, y, w, col):
+        """文字放得下就直接畫; 太長就在固定寬度內來回捲動 (像歌名); 同時最多 3 條捲動以保護記憶體"""
+        if c.text_w(s) <= w:
+            c.text(s, x, y, col)
             return
-        if st == "F":
-            c.text("%d局" % sc.get("in", 9), R, 28, FG)
-            c.text("安打 %d:%d" % (sc.get("ah", 0), sc.get("hh", 0)), R, 42, DIM)
-            c.text("失誤 %d:%d" % (sc.get("ae", 0), sc.get("he", 0)), R, 56, DIM)
-            return
-        inn = sc.get("in", 1)
-        tx = sc.get("tx") or ("%d局" % inn)
-        c.text(tx, R, 14, ACC)
-        w = c.text_w(tx)
-        if not sc.get("mid"):
-            c.icon(IC["down" if sc.get("hf", 0) else "up"], R + w + 3, 18, ACC)
-        bs = sc.get("bs", 0)
-        cx, cy = R + 66, 36
-        diamond(c, cx, cy - 8, 4, WARN if bs & 2 else FAINT, bs & 2)
-        diamond(c, cx + 9, cy + 1, 4, WARN if bs & 1 else FAINT, bs & 1)
-        diamond(c, cx - 9, cy + 1, 4, WARN if bs & 4 else FAINT, bs & 4)
-        # 好壞球 / 出局: 小方塊
-        for k, (lab, v, mx, col) in enumerate((("B", sc.get("b", 0), 4, GOOD), ("S", sc.get("s", 0), 3, WARN), ("O", sc.get("o", 0), 3, BAD))):
-            y = 27 + k * 10
-            c.text(lab, R, y - 3, DIM)
-            for i in range(mx):
-                c.frect(R + 12 + i * 9, y, 6, 6, col if i < v else FAINT)
-        # 打者 / 投手 (簡短版; 姓名在細節頁)
-        if sc.get("bavg"):
-            c.text("打", R, 56, DIM)
-            c.text(sc.get("bavg", "") + (" " + sc["bhab"] if sc.get("bhab") else ""), R + 16, 56, FG)
-        if sc.get("pc") is not None:
-            c.text("投", R, 68, DIM)
-            c.text("%d球" % sc["pc"] + (" %s局" % sc["pip"] if sc.get("pip") else ""), R + 16, 68, FG)
-
-    def base_detail(self, c, sc):
-        a, h = sc.get("a", "?"), sc.get("h", "?")
-        ai, hi = sc.get("ai", []), sc.get("hi", [])
-        n = max(len(ai), len(hi), 9)
-        first = max(0, n - 9)
-        x0 = 26
-        for i in range(9):
-            inn = first + i
-            c.text_c(str((inn + 1) % 10), x0 + i * 10 + 5, 14, FAINT)
-        for lab, x in (("R", 124), ("H", 138), ("E", 150)):
-            c.text_c(lab, x, 14, ACC)
-        for r, (nm, arr, R, H, E) in enumerate(((a, ai, sc.get("as", 0), sc.get("ah", 0), sc.get("ae", 0)),
-                                                  (h, hi, sc.get("hs", 0), sc.get("hh", 0), sc.get("he", 0)))):
-            y = 27 + r * 13
-            c.text(nm, 2, y, FG)
-            for i in range(9):
-                inn = first + i
-                v = arr[inn] if inn < len(arr) else None
-                if v is None:
-                    c.text_c("-" if inn >= len(arr) and sc.get("st") != "P" else "", x0 + i * 10 + 5, y, FAINT)
-                else:
-                    c.text_c(num(v), x0 + i * 10 + 5, y, FG if v else DIM)
-            c.text_c(str(R), 124, y, GOOD)
-            c.text_c(str(H), 138, y, FG)
-            c.text_c(str(E), 150, y, WARN if E else DIM)
-        c.hline(2, 53, 156, FAINT)
-        if sc.get("st") == "F":
-            c.text("勝", 2, 55, GOOD)
-            sv = sc.get("sv")
-            svw = 0
-            if sv:
-                svw = c.text_w("救 " + sv) + 4
-                c.text_r("救 " + sv, 156, 55, WARN)
-            self._txt(c, "wp", sc.get("wp") or "--", 16, 55, 138 - svw, FG)
-            c.text("敗", 2, 67, BAD)
-            ex = "%d局" % sc.get("in", 9)
-            c.text_r(ex, 156, 67, DIM)
-            self._txt(c, "lp", sc.get("lp") or "--", 16, 67, 138 - c.text_w(ex) - 4, FG)
-            return
-        c.text("打", 2, 55, DIM)
-        ex = ((sc.get("bavg", "") + " " + sc["bhab"]).strip() if sc.get("bhab") or sc.get("bavg") else "")
-        if ex:
-            c.text_r(ex, 156, 55, FG)
-        self._txt(c, "bt", sc.get("bt", "") or "--", 16, 55, 138 - (c.text_w(ex) + 4 if ex else 0), FG)
-        c.text("投", 2, 67, DIM)
-        ex = ""
-        if sc.get("pc") is not None:
-            ex = "%d球" % sc["pc"]
-            if sc.get("pip"):
-                ex += " %s局" % sc["pip"]
-            if sc.get("per") is not None:
-                ex += " %d責" % sc["per"]
-        if ex:
-            c.text_r(ex, 156, 67, FG)
-        self._txt(c, "pt", sc.get("pt", "") or "--", 16, 67, 138 - (c.text_w(ex) + 4 if ex else 0), FG)
-
-    def _bk(self):
-        import p_scorebk
-        return p_scorebk
+        m = self._mqs.get(key)
+        if m is not None and m.w != w:
+            m = None
+        if m is None:
+            if len(self._mqs) >= 3 and key not in self._mqs:
+                c.text(clip_text(c, s, w), x, y, col)
+                return
+            m = self._mqs[key] = Marquee(self.app.mq[0].cv.font, w, col)
+        m.draw(c, x, y, s, self._now, BG, col)
+        self._anim = True
 
     def draw(self, c, now):
         games = self.st.games
@@ -256,17 +220,13 @@ class ScorePage(Page):
         self._now = now
         self._anim = False
         g = games[self.sel]
-        lg, a, h = g[0], g[1], g[2]
         sc = self.st.scores.get(self.sel)
         if not sc:
-            c.text("%s  vs  %s" % (a, h), 6, 22, FG)
+            c.text("%s  vs  %s" % (g[1], g[2]), 6, 22, FG)
             c.text("等待手機傳送比分…", 6, 40, DIM)
             return
-        base = lg in ("MLB", "CPBL")
-        if self.view and sc.get("st") != "P":
-            self.base_detail(c, sc) if base else self._bk().detail(self, c, sc)
-        else:
-            self.base_main(c, sc) if base else self._bk().main(self, c, sc)
-            # 左下角一排: 中文隊名 (客 v 主), 太長就捲動
-            na, nh = g[3] or a, g[4] or h
-            self._txt(c, "tm", "%s v %s" % (na, nh), 2, 68, self.lx - 2, DIM)
+        m = self._mod("p_scorebb" if g[0] in BASE else "p_scorebk")
+        if m is None:
+            c.text("記憶體不足, 稍後重試", 6, 30, WARN)
+            return
+        m.draw(self, c, sc, self._v(), g)

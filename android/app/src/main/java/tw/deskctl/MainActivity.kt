@@ -287,6 +287,7 @@ class MainActivity : Activity() {
         val bg = btnToggle.background
         if (bg is GradientDrawable) bg.setColor(if (running) C_BAD else C_PRIMARY)
         btnReconnect.visibility = if (running) View.VISIBLE else View.GONE
+        btnReconnect.text = if (BridgeService.paused) "重新搜尋控制器" else "重新連線"
 
         val missing = setupItems.filter { !it.optional && !it.done() }
         if (missing.isEmpty()) {
@@ -451,6 +452,11 @@ class MainActivity : Activity() {
             Toast.makeText(this, "下次啟動服務時生效 (停止後再啟動)", Toast.LENGTH_SHORT).show()
         }
         pref.addView(s3, LinearLayout.LayoutParams(-1, -2))
+        val s4 = Switch(this)
+        s4.text = "智慧省電: 連續 10 分鐘找不到控制器就暫停搜尋"
+        s4.isChecked = Prefs.autoPause(this)
+        s4.setOnCheckedChangeListener { _, c -> Prefs.setAutoPause(this, c) }
+        pref.addView(s4, LinearLayout.LayoutParams(-1, -2))
 
         // ---- 手機訊息 ----
         val msgc = card(col)
@@ -569,6 +575,7 @@ class MainActivity : Activity() {
     private lateinit var tvPhone: TextView
     private lateinit var tvCtl: TextView
     private lateinit var tvSpark: TextView
+    private lateinit var tvMemClean: TextView
     private lateinit var tvClean: TextView
     private lateinit var tvMsgSel: TextView
 
@@ -595,6 +602,8 @@ class MainActivity : Activity() {
         text(cc, "剩餘記憶體趨勢 (約每 10 秒一點)", 12f, C_SUB).setPadding(0, dp(8), 0, 0)
         tvSpark = text(cc, "", 18f, C_PRIMARY)
         text(cc, "記憶體持續下降不回升, 代表可能有洩漏; 韌體會自動回收。", 12f, C_GREY)
+        button(cc, "清理控制器記憶體") { startSvc(BridgeService.ACTION_MEMCLEAN) }
+        tvMemClean = text(cc, "", 13f, C_PRIMARY)
 
         val cl = card(col)
         text(cl, "手機清理", 16f, C_TEXT, true)
@@ -658,6 +667,7 @@ class MainActivity : Activity() {
         c.append(String.format("%-12s%s", "回報", if (age < 30) "${age} 秒前" else "已過期 (${age} 秒)"))
         tvCtl.text = c.toString()
         tvSpark.text = spark(DeviceInfo.memHistory.toList())
+        tvMemClean.text = DeviceInfo.cleanMsg
     }
 
     private fun pageName(id: String): String = DeviceInfo.pages.firstOrNull { it.first == id }?.second ?: id

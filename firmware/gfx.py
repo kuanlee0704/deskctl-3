@@ -88,9 +88,9 @@ class Font:
 
 
 class Canvas:
-    def __init__(self, w, h, font):
+    def __init__(self, w, h, font, buf=None):
         self.w, self.h = w, h
-        self.buf = bytearray(w * h * 2)
+        self.buf = buf if buf is not None else bytearray(w * h * 2)
         self.fb = framebuf.FrameBuffer(self.buf, w, h, framebuf.RGB565)
         self.font = font
         self._pal = {}

@@ -269,7 +269,7 @@ r.msg(k="act", s="done", n="清理", m="釋放約 300MB"); r.run(100); check("cl
 
 # ---------- 比分板 ----------
 r = Rig(); r.run(100); r.link.sent.clear(); a = r.app; a.go("score"); r.run(100)
-check("score enter sends sc on", {"c": "sc", "on": 1} in r.link.sent, r.link.sent)
+check("score enter sends sc on", {"c": "sc", "on": 1, "sel": 0} in r.link.sent, r.link.sent)
 r.msg(k="games", l=[["MLB", "NYY", "BOS"], ["NBA", "LAL", "GSW"], ["CPBL", "樂天", "統一"]]); r.run(50)
 check("games stored", len(r.st.games) == 3 and r.st.games[1][0] == "NBA", r.st.games)
 r.msg(k="score", i=1, lg="NBA", st="L", a="LAL", h="GSW", q=2, c="1:00"); r.run(50)
@@ -277,8 +277,37 @@ check("score stored", r.st.scores.get(1, {}).get("q") == 2)
 check("start slot 0", a.cur.sel == 0)
 r.click(K_RIGHT); check("right -> next game", a.cur.sel == 1 and a.cur_id == "score", (a.cur.sel, a.cur_id))
 r.click(K_LEFT); r.click(K_LEFT); check("left wraps", a.cur.sel == 2)
-r.click(K_DOWN); check("down -> detail view", a.cur.view == 1); r.click(K_UP); check("up -> main view", a.cur.view == 0)
+a.cur.sel = 1; r.click(K_DOWN); check("down -> detail view", a.cur.view == 1); r.click(K_UP); check("up -> main view", a.cur.view == 0)
+# --- 棒球即時: 4 個畫面循環; 精簡/完整資料; 籃球計時器往下推算 ---
+r.msg(k="score", i=0, lg="MLB", st="L", a="NYY", h="BOS", **{"as": 1, "hs": 0}, bt="S. Judge", pt="G. Crochet", ar="90-72", hr="85-77")
+a.cur.sel = 0; a.cur._tell(); r.run(20)
+check("full data kept for selected", "bt" in r.st.scores[0], r.st.scores.get(0))
+check("lite data for others", "q" in r.st.scores[1] and "af" not in r.st.scores[1], r.st.scores.get(1))
+vs = []
+for _ in range(4):
+    r.click(K_UP); vs.append(a.cur.view)
+check("mlb live cycles 4 views", vs == [1, 2, 3, 0], vs)
+r.click(K_DOWN); check("down wraps back to 3", a.cur.view == 3, a.cur.view)
+a.cur.view = 0
+r.msg(k="score", i=1, lg="NBA", st="L", a="LAL", h="GSW", q=2, cs=3000, cr=1); r.run(20)
+a.cur.sel = 1; a.cur._tell(); r.msg(k="score", i=1, lg="NBA", st="L", a="LAL", h="GSW", q=2, cs=3000, cr=1); r.run(20)
+r0 = a.cur.clk(r.st.scores[1], a.cur._now)
+r.run(2000); r1 = a.cur.clk(r.st.scores[1], a.cur._now)
+check("nba clock counts down", 0 < r0 - r1 <= 25 and r1 < r0, (r0, r1))
+r.msg(k="score", i=1, lg="NBA", st="L", a="LAL", h="GSW", q=2, cs=3000, cr=0); r.run(2000)
+check("nba clock holds when stopped", a.cur.clk(r.st.scores[1], a.cur._now) == 3000)
+check("leave trims all to lite", True)
+a.cur.sel = 2
 r.msg(k="games", l=[["MLB", "NYY", "BOS"]]); r.run(50); check("shrunk games drops scores", 1 not in r.st.scores)
 r.link.sent.clear(); a.go("home"); r.run(50); check("leave sends sc off", {"c": "sc", "on": 0} in r.link.sent, r.link.sent)
+
+# ---- 清理記憶體 ----
+r.app.go("dev", clock.now) if hasattr(r.app, "go") else None
+b, f = r.app.free_mem(reply=False)
+check("free_mem returns ints", isinstance(b, int) and isinstance(f, int), (b, f))
+check("free_mem resets min", r.app.mem_min == f or r.app.mem_min <= f)
+r.msg(k="memclean"); r.run(50)
+check("memclean msg ok", True)
+print("memclean tests done")
 
 print("\n%d failures" % len(fails)); sys.exit(1 if fails else 0)

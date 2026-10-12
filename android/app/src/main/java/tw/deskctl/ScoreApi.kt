@@ -125,12 +125,14 @@ object ScoreApi {
     }
 
     /** 回傳 欄位編號 → 要傳給控制器的 JSON (欄位編號 = 在追蹤清單裡的順序) */
-    fun fetch(list: List<Tracked>): Map<Int, JSONObject> {
+    /** sel: 控制器正在看的欄位; detail: 控制器是否正開著比分頁 (是才抓 MLB 即時細節, 那份資料很大) */
+    fun fetch(list: List<Tracked>, sel: Int = -1, detail: Boolean = false): Map<Int, JSONObject> {
         val out = HashMap<Int, JSONObject>()
         // MLB 一次抓全部
         val mlb = list.withIndex().filter { it.value.lg == "MLB" }
         if (mlb.isNotEmpty()) {
-            val m = fetchMlb(mlb.map { it.value })
+            val selId = if (detail && sel in list.indices && list[sel].lg == "MLB") list[sel].id else ""
+            val m = fetchMlb(mlb.map { it.value }, selId)
             for ((idx, t) in mlb) m[t.id]?.let { out[idx] = it.put("k", "score").put("i", idx) }
         }
         for ((idx, t) in list.withIndex()) {
@@ -146,6 +148,7 @@ object ScoreApi {
 
     private fun base(t: Tracked, st: String): JSONObject {
         val o = JSONObject().put("lg", t.lg).put("st", st).put("a", t.a).put("h", t.h)
+            .put("tn", Teams.cn(t.lg, t.a) + " v " + Teams.cn(t.lg, t.h))
         if (st == "P") o.put("tm", fmtTime(t.startMs))
         return o
     }
@@ -199,9 +202,9 @@ object ScoreApi {
         return out.sortedBy { it.startMs }
     }
 
-    private fun fetchMlb(ts: List<Tracked>): Map<String, JSONObject> {
+    private fun fetchMlb(ts: List<Tracked>, selId: String): Map<String, JSONObject> {
         val ids = ts.joinToString(",") { it.id }
-        val games = mlbGames("https://statsapi.mlb.com/api/v1/schedule?sportId=1&gamePks=$ids&hydrate=team,linescore,decisions")
+        val games = mlbGames("https://statsapi.mlb.com/api/v1/schedule?sportId=1&gamePks=$ids&hydrate=team,linescore,decisions,probablePitcher")
         val out = HashMap<String, JSONObject>()
         for (g in games) {
             try {
@@ -212,6 +215,20 @@ object ScoreApi {
                 val aw = g.getJSONObject("teams").getJSONObject("away")
                 val hm = g.getJSONObject("teams").getJSONObject("home")
                 val ls = g.optJSONObject("linescore")
+                rec(aw)?.let { o.put("ar", it) }
+                rec(hm)?.let { o.put("hr", it) }
+                if (st == "P") {
+                    val ap = aw.optJSONObject("probablePitcher")
+                    val hp = hm.optJSONObject("probablePitcher")
+                    ap?.optString("fullName")?.let { o.put("ap", lastName(it)) }
+                    hp?.optString("fullName")?.let { o.put("hp", lastName(it)) }
+                    val ids = listOfNotNull(ap?.optInt("id"), hp?.optInt("id"))
+                    if (ids.isNotEmpty()) {
+                        val ps = pitcherSeason(ids)
+                        ap?.let { ps[it.optInt("id")]?.let { v -> o.put("ax", v) } }
+                        hp?.let { ps[it.optInt("id")]?.let { v -> o.put("hx", v) } }
+                    }
+                }
                 if (st != "P") {
                     o.put("as", aw.optInt("score", ls?.optJSONObject("teams")?.optJSONObject("away")?.optInt("runs") ?: 0))
                     o.put("hs", hm.optInt("score", ls?.optJSONObject("teams")?.optJSONObject("home")?.optInt("runs") ?: 0))
@@ -238,12 +255,12 @@ object ScoreApi {
                             if (off.has("first")) bs = bs or 1
                             if (off.has("second")) bs = bs or 2
                             if (off.has("third")) bs = bs or 4
-                            off.optJSONObject("batter")?.optString("fullName")?.let { o.put("bt", it) }
+                            off.optJSONObject("batter")?.optString("fullName")?.let { o.put("bt", lastName(it)) }
                         }
                         o.put("bs", bs)
-                        ls.optJSONObject("defense")?.optJSONObject("pitcher")?.optString("fullName")?.let { o.put("pt", it) }
+                        ls.optJSONObject("defense")?.optJSONObject("pitcher")?.optString("fullName")?.let { o.put("pt", lastName(it)) }
                     }
-                    if (st == "L" && !mid) mlbLive(id, o)
+                    if (st == "L" && !mid && id == selId) mlbLive(id, o)
                     val lt = ls.optJSONObject("teams")
                     o.put("ah", lt?.optJSONObject("away")?.optInt("hits") ?: 0).put("hh", lt?.optJSONObject("home")?.optInt("hits") ?: 0)
                     o.put("ae", lt?.optJSONObject("away")?.optInt("errors") ?: 0).put("he", lt?.optJSONObject("home")?.optInt("errors") ?: 0)
@@ -278,12 +295,59 @@ object ScoreApi {
         return p[0].first().uppercaseChar().toString() + ". " + last
     }
 
-    /** 即時打者 / 投手資料 (打擊率、當場幾之幾、投球數、投球局數、責失分); 取不到就略過 */
+    private fun rec(team: JSONObject): String? {
+        val lr = team.optJSONObject("leagueRecord") ?: return null
+        return if (lr.has("wins")) lr.optInt("wins").toString() + "-" + lr.optInt("losses") else null
+    }
+
+    /** 先發投手本季戰績: id → "12-5 ERA 2.85" */
+    private fun pitcherSeason(ids: List<Int>): Map<Int, String> {
+        val out = HashMap<Int, String>()
+        val h = URLEncoder.encode("stats(group=[pitching],type=[season])", "UTF-8")
+        val txt = http("https://statsapi.mlb.com/api/v1/people?personIds=" + ids.joinToString(",") + "&hydrate=" + h) ?: return out
+        try {
+            val ppl = JSONObject(txt).optJSONArray("people") ?: return out
+            for (i in 0 until ppl.length()) {
+                val p = ppl.getJSONObject(i)
+                val sp = p.optJSONArray("stats")?.optJSONObject(0)?.optJSONArray("splits")?.optJSONObject(0)?.optJSONObject("stat") ?: continue
+                out[p.optInt("id")] = sp.optInt("wins").toString() + "-" + sp.optInt("losses") + " ERA " + sp.optString("era")
+            }
+        } catch (e: Exception) {
+            AppLog.w("SCORE", "先發投手戰績解析失敗: $e")
+        }
+        return out
+    }
+
+    private fun evAbbr(ev: String): String = when (ev) {
+        "Single" -> "1B"
+        "Double" -> "2B"
+        "Triple" -> "3B"
+        "Home Run" -> "HR"
+        "Walk" -> "BB"
+        "Intent Walk" -> "IBB"
+        "Hit By Pitch" -> "HBP"
+        "Strikeout", "Strikeout Double Play", "Strikeout Triple Play" -> "K"
+        "Flyout", "Sac Fly", "Sac Fly Double Play" -> if (ev == "Flyout") "FO" else "SF"
+        "Groundout", "Bunt Groundout" -> "GO"
+        "Lineout", "Bunt Lineout" -> "LO"
+        "Pop Out", "Bunt Pop Out" -> "PO"
+        "Forceout", "Fielders Choice", "Fielders Choice Out" -> "FC"
+        "Field Error" -> "E"
+        "Grounded Into DP", "Double Play" -> "GDP"
+        "Triple Play" -> "TP"
+        "Sac Bunt", "Sac Bunt Double Play" -> "SH"
+        "Catcher Interference" -> "CI"
+        else -> ev.take(3).uppercase()
+    }
+
+    /** 即時細節 (只抓控制器正在看的那一場): 打者/投手/下兩棒、上一球球種球速、上一個打席結果 */
     private fun mlbLive(pk: String, o: JSONObject) {
         val txt = http("https://statsapi.mlb.com/api/v1.1/game/$pk/feed/live") ?: return
         try {
             val live = JSONObject(txt).getJSONObject("liveData")
-            val m = live.getJSONObject("plays").optJSONObject("currentPlay")?.optJSONObject("matchup") ?: return
+            val plays = live.getJSONObject("plays")
+            val cur = plays.optJSONObject("currentPlay")
+            val m = cur?.optJSONObject("matchup") ?: return
             val teams = live.getJSONObject("boxscore").getJSONObject("teams")
             fun player(id: Int): JSONObject? {
                 for (side in listOf("away", "home")) {
@@ -292,15 +356,21 @@ object ScoreApi {
                 }
                 return null
             }
+            fun avgOf(p: JSONObject?): String {
+                val avg = p?.optJSONObject("seasonStats")?.optJSONObject("batting")?.optString("avg") ?: ""
+                return if (avg.isEmpty() || avg.contains("-")) "" else (if (avg.startsWith("0.")) avg.substring(1) else avg)
+            }
+            fun habOf(p: JSONObject?): String {
+                val bs = p?.optJSONObject("stats")?.optJSONObject("batting") ?: return ""
+                return bs.optInt("hits").toString() + "-" + bs.optInt("atBats")
+            }
             val b = m.optJSONObject("batter")
             val p = m.optJSONObject("pitcher")
             if (b != null) {
                 o.put("bt", lastName(b.optString("fullName")))
                 val bp = player(b.optInt("id"))
-                val avg = bp?.optJSONObject("seasonStats")?.optJSONObject("batting")?.optString("avg") ?: ""
-                if (avg.isNotEmpty() && avg != "-.--") o.put("bavg", avg.removePrefix("0").let { if (it.startsWith(".")) it else ".$it" })
-                val bs = bp?.optJSONObject("stats")?.optJSONObject("batting")
-                if (bs != null) o.put("bhab", bs.optInt("hits").toString() + "-" + bs.optInt("atBats"))
+                avgOf(bp).let { if (it.isNotEmpty()) o.put("bavg", it) }
+                habOf(bp).let { if (it.isNotEmpty()) o.put("bhab", it) }
             }
             if (p != null) {
                 o.put("pt", lastName(p.optString("fullName")))
@@ -310,6 +380,50 @@ object ScoreApi {
                     if (ps.has("numberOfPitches")) o.put("pc", ps.optInt("numberOfPitches"))
                     ps.optString("inningsPitched").takeIf { it.isNotEmpty() }?.let { o.put("pip", it) }
                     if (ps.has("earnedRuns")) o.put("per", ps.optInt("earnedRuns"))
+                    if (ps.has("strikeOuts")) o.put("pk", ps.optInt("strikeOuts"))
+                    if (ps.has("baseOnBalls")) o.put("pbb", ps.optInt("baseOnBalls"))
+                }
+                pp?.optJSONObject("seasonStats")?.optJSONObject("pitching")?.optString("era")?.takeIf { it.isNotEmpty() }?.let { o.put("pe", it) }
+            }
+            // 下兩棒
+            val off = live.optJSONObject("linescore")?.optJSONObject("offense")
+            var k = 1
+            for (key in listOf("onDeck", "inHole")) {
+                val nb = off?.optJSONObject(key) ?: continue
+                o.put("n$k", lastName(nb.optString("fullName")))
+                val np = player(nb.optInt("id"))
+                o.put("v$k", (avgOf(np) + " " + habOf(np)).trim())
+                k++
+            }
+            // 上一球 (目前打席還沒投球就往前一個打席找)
+            val all = plays.optJSONArray("allPlays")
+            fun lastPitch(play: JSONObject?): JSONObject? {
+                val ev = play?.optJSONArray("playEvents") ?: return null
+                for (i in ev.length() - 1 downTo 0) {
+                    val e = ev.getJSONObject(i)
+                    if (e.optBoolean("isPitch")) return e
+                }
+                return null
+            }
+            var lp = lastPitch(cur)
+            if (lp == null && all != null && all.length() >= 2) lp = lastPitch(all.optJSONObject(all.length() - 2))
+            if (lp != null) {
+                lp.optJSONObject("details")?.optJSONObject("type")?.optString("code")?.takeIf { it.isNotEmpty() }?.let { o.put("lt", it) }
+                val sp = lp.optJSONObject("pitchData")?.optDouble("startSpeed", -1.0) ?: -1.0
+                if (sp > 0) o.put("lv", String.format(java.util.Locale.US, "%.1f", sp))
+            }
+            // 上一個完成的打席結果
+            if (all != null) {
+                for (i in all.length() - 1 downTo 0) {
+                    val pl = all.getJSONObject(i)
+                    if (pl.optJSONObject("about")?.optBoolean("isComplete") == true) {
+                        val ev = pl.optJSONObject("result")?.optString("event") ?: ""
+                        if (ev.isNotEmpty()) {
+                            o.put("lr", evAbbr(ev))
+                            pl.optJSONObject("matchup")?.optJSONObject("batter")?.optString("fullName")?.let { o.put("ln", lastName(it)) }
+                        }
+                        break
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -444,6 +558,59 @@ object ScoreApi {
     }
 
     /** "PT05M32.00S" → "5:32"; 最後一分鐘顯示 "0:45" (秒); 小於 1 分且有小數 → "0:45" */
+    private class ClkState(var tenths: Int, var running: Boolean, var same: Int)
+
+    private val clkPrev = HashMap<String, ClkState>()
+
+    /** "PT05M32.40S" → 3324 (0.1 秒); 讀不出來回傳 -1 */
+    private fun nbaTenths(s: String): Int {
+        val m = Regex("PT(\\d+)M(\\d+)(?:\\.(\\d+))?S").find(s) ?: return -1
+        val frac = m.groupValues[3].firstOrNull()?.digitToInt() ?: 0
+        return m.groupValues[1].toInt() * 600 + m.groupValues[2].toInt() * 10 + frac
+    }
+
+    /** ESPN 的 displayClock: "5:32" 或最後一分鐘的 "45.3" */
+    private fun espnTenths(s: String): Int {
+        val t = s.trim()
+        val c = t.split(":")
+        return try {
+            if (c.size == 2) c[0].toInt() * 600 + c[1].substringBefore('.').toInt() * 10
+            else (t.toDouble() * 10).toInt()
+        } catch (_: Exception) {
+            -1
+        }
+    }
+
+    /**
+     * 計時器: 送出剩餘 0.1 秒數 cs 與「是否正在跑」cr, 控制器會在兩次更新之間自己往下推算。
+     * 判斷方式: 和上一次比, 變少 = 在跑; 連續兩次一樣 = 停表 (暫停、罰球、節間); 開局第一次剛好是整節時間 = 還沒開始。
+     */
+    private fun clockFields(o: JSONObject, id: String, tenths: Int, brk: Boolean, period: Int) {
+        if (tenths < 0) return
+        val cs = if (brk) 0 else tenths
+        val full = if (period <= 4) 7200 else 3000
+        val prev = clkPrev[id]
+        val running: Boolean
+        if (brk) {
+            running = false
+            clkPrev[id] = ClkState(cs, false, 0)
+        } else if (prev == null) {
+            running = cs < full
+            clkPrev[id] = ClkState(cs, running, 0)
+        } else if (cs < prev.tenths) {
+            running = true
+            prev.tenths = cs; prev.running = true; prev.same = 0
+        } else if (cs == prev.tenths) {
+            prev.same++
+            if (prev.same >= 2) prev.running = false
+            running = prev.running
+        } else {
+            running = false
+            prev.tenths = cs; prev.running = false; prev.same = 0
+        }
+        o.put("cs", cs).put("cr", if (running) 1 else 0)
+    }
+
     private fun nbaClock(s: String): String {
         val m = Regex("PT(\\d+)M(\\d+)(?:\\.(\\d+))?S").find(s) ?: return ""
         val mm = m.groupValues[1].toInt()
@@ -478,7 +645,9 @@ object ScoreApi {
             o.put("q", q)
             val clk = nbaClock(g.optString("gameClock"))
             o.put("c", clk)
-            if (st == "L" && (clk == "0:00" || clk.isEmpty())) o.put("brk", 1)
+            val brk = st == "L" && (clk == "0:00" || clk.isEmpty())
+            if (brk) o.put("brk", 1)
+            if (st == "L") clockFields(o, t.id, nbaTenths(g.optString("gameClock")), brk, q)
             fun fouls(team: JSONObject): Int {
                 val s = team.optJSONObject("statistics") ?: return 0
                 return if (s.has("foulsTeam")) s.optInt("foulsTeam") else s.optInt("foulsPersonal")
@@ -528,6 +697,11 @@ object ScoreApi {
         o.put("q", s?.optInt("period", 1) ?: 1)
         val clk = s?.optString("displayClock") ?: ""
         o.put("c", clk.substringBefore('.'))
+        if (st == "L") {
+            val ten = espnTenths(clk)
+            clockFields(o, t.id, ten, ten == 0, s?.optInt("period", 1) ?: 1)
+            if (ten == 0) o.put("brk", 1)
+        }
         fun ls(c: JSONObject?): JSONArray {
             val r = JSONArray()
             val arr = c?.optJSONArray("linescores") ?: return r

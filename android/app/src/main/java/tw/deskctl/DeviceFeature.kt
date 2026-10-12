@@ -19,6 +19,7 @@ object DeviceInfo {
     @Volatile var ring: List<String> = emptyList()                    // 控制器目前的快速切換環
     val memHistory = ArrayDeque<Int>()          // 剩餘記憶體歷史 (每次 stat 一點, 最多 30 點)
     @Volatile var version = 0                   // 有變動就 +1
+    @Volatile var cleanMsg = ""                 // 最近一次「清理控制器記憶體」的結果
 
     fun reset() {
         at = 0L
@@ -121,6 +122,14 @@ class DeviceFeature(host: FeatureHost) : Feature(host) {
                 val h = DeviceInfo.memHistory
                 h.addLast(DeviceInfo.memFree)
                 while (h.size > 30) h.removeFirst()
+                DeviceInfo.version++
+            }
+            "memclean" -> {
+                val f = o.optInt("f")
+                val b = o.optInt("b")
+                DeviceInfo.cleanMsg = "已清理: 釋放 " + ((f - b).coerceAtLeast(0) / 1024) + " KB, 現在剩 " + f / 1024 + " KB"
+                DeviceInfo.memFree = f
+                AppLog.i("DEVICE", DeviceInfo.cleanMsg)
                 DeviceInfo.version++
             }
             "pages" -> {

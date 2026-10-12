@@ -197,6 +197,31 @@ class App:
                 del sys.modules[info[2]]
         gc.collect()
 
+    def free_mem(self, now=None, reply=True):
+        """清理記憶體 (像手機的清理): 卸載所有不在用的頁面與程式碼、重置最低值, 兩次 gc 整併碎片。回傳(前,後)"""
+        if now is None:
+            now = time.ticks_ms()
+        gc.collect()
+        b = gc.mem_free()
+        self._evict(self.cur_id)
+        for pid in list(self.insts):                    # _evict 保留 home/sw, 其餘 CORE (music) 不在使用中也可丟
+            if pid == "music" and self.cur_id != "music":
+                del self.insts[pid]
+                info = registry.info(pid)
+                if info and info[2] in sys.modules:
+                    del sys.modules[info[2]]
+        gc.collect()
+        gc.collect()
+        f = gc.mem_free()
+        self.mem_min = f
+        del self.mem_hist[:]
+        self.mem_hist.append(f)
+        self._gc_t = now
+        self.toast("已清理 +%dKB" % max(0, (f - b) // 1024), 1800)
+        if reply:
+            self.link.send({"c": "memclean", "f": f, "b": b, "a": gc.mem_alloc()})
+        return b, f
+
     def go(self, pid, now=None):
         if now is None:
             now = time.ticks_ms()
@@ -346,6 +371,8 @@ class App:
             if self.st.pl == PL_PLAY and was != PL_PLAY:
                 self.idle_t = now                  # 手機開始播放 -> 喚醒
             self.cur.dirty = True
+            if m.get("k") == "memclean":
+                self.free_mem(now)
             if m.get("k") == "ping":
                 self.link.send({"c": "pong"})
         if time.ticks_diff(now, self._mem_t) >= 5000:

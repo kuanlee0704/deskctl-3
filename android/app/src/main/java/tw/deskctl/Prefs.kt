@@ -31,6 +31,10 @@ object Prefs {
     fun wakeLock(c: Context): Boolean = sp(c).getBoolean("wake_lock", true)
     fun setWakeLock(c: Context, v: Boolean) { sp(c).edit().putBoolean("wake_lock", v).apply() }
 
+    /** 連續 10 分鐘找不到控制器就自動暫停搜尋 (省電), 預設開啟 */
+    fun autoPause(c: Context): Boolean = sp(c).getBoolean("auto_pause", true)
+    fun setAutoPause(c: Context, v: Boolean) { sp(c).edit().putBoolean("auto_pause", v).apply() }
+
     /** 目錄設定 (JSON 物件, m=目錄順序 r=快速切換), 空字串 = 沿用控制器自己的設定 */
     fun layout(c: Context): String = sp(c).getString("layout", "") ?: ""
     fun setLayout(c: Context, v: String) { sp(c).edit().putString("layout", v).apply() }

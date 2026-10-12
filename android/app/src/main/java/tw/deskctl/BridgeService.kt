@@ -45,6 +45,7 @@ class BridgeService : Service() {
         const val ACTION_FORGET = "tw.deskctl.FORGET"
         const val ACTION_RECONNECT = "tw.deskctl.RECONNECT"
         const val ACTION_SYNC = "tw.deskctl.SYNC"
+        const val ACTION_MEMCLEAN = "tw.deskctl.MEMCLEAN"     // 要求控制器清理記憶體
         const val ACTION_RUN = "tw.deskctl.RUN"        // extra "i" = 捷徑編號 (手機上測試執行用)
         private const val CHANNEL = "bridge"
         private const val NOTIF_ID = 1
@@ -59,6 +60,8 @@ class BridgeService : Service() {
         // 給 MainActivity 顯示用的即時狀態
         @Volatile var status: String = "尚未啟動"
         @Volatile var running: Boolean = false
+        @Volatile var paused: Boolean = false            // 找不到控制器太久, 已自動暫停搜尋
+        const val GIVE_UP_MS = 10 * 60 * 1000L
         @Volatile var connected: Boolean = false
         @Volatile var connectedSince: Long = 0L          // SystemClock.elapsedRealtime
         @Volatile var infoLines: List<String> = emptyList()
@@ -74,10 +77,12 @@ class BridgeService : Service() {
         set(v) {
             field = v
             connected = v
+            if (v) { searchSince = 0L; paused = false }
             connectedSince = if (v) SystemClock.elapsedRealtime() else 0L
         }
     private var mtu = 23
     private var scanning = false
+    private var searchSince = 0L          // 開始(連續)找不到控制器的時間, 連上就歸零
     private var inited = false
     private var tick = 0
     private var lastRx = 0L
@@ -143,15 +148,21 @@ class BridgeService : Service() {
             ACTION_FORGET -> {
                 Prefs.setMac(this, null)
                 AppLog.i(TAG, "已忘記控制器, 重新搜尋")
-                if (inited) { stopScan(); closeGatt(); connectFails = 0; scheduleConnect(100) }
+                if (inited) { resumeSearch(); searchSince = 0L; stopScan(); closeGatt(); connectFails = 0; scheduleConnect(100) }
             }
             ACTION_RECONNECT -> {
                 AppLog.i(TAG, "手動重新連線")
-                if (inited) { stopScan(); closeGatt(); connectFails = 0; scheduleConnect(100) }
+                if (inited) { resumeSearch(); searchSince = 0L; stopScan(); closeGatt(); connectFails = 0; scheduleConnect(100) }
             }
             ACTION_RUN -> {
                 val i = intent?.getIntExtra("i", -1) ?: -1
                 if (inited && i >= 0) handleCmd(JSONObject().put("c", "run").put("i", i))
+            }
+            ACTION_MEMCLEAN -> {
+                if (inited && ready) {
+                    AppLog.i(TAG, "要求控制器清理記憶體")
+                    send(JSONObject().put("k", "memclean"))
+                }
             }
             ACTION_SYNC -> {
                 if (inited && ready) {
@@ -162,6 +173,10 @@ class BridgeService : Service() {
             }
         }
         startAsForeground()
+        if (inited && paused && (intent?.action == null || intent?.action == ACTION_START)) {
+            resumeSearch()                       // 使用者重新開啟 App / 按啟動: 恢復搜尋
+            scheduleConnect(100)
+        }
         if (!inited) init()
         return START_STICKY
     }
@@ -282,6 +297,13 @@ class BridgeService : Service() {
     private fun connect() {
         if (!inited) return
         if (gatt != null || scanning) return          // 已在連線/掃描中, 不要重複動作 (否則會把好好的連線關掉)
+        if (paused) return
+        val nowMs = SystemClock.elapsedRealtime()
+        if (searchSince == 0L) searchSince = nowMs
+        if (Prefs.autoPause(this) && nowMs - searchSince > GIVE_UP_MS) {
+            pauseSearch()
+            return
+        }
         val ad = adapter()
         if (ad == null || !ad.isEnabled) {
             setStatus("請先開啟手機藍牙")
@@ -305,6 +327,26 @@ class BridgeService : Service() {
             connectFails = 0
             startScan(ad)
         }
+    }
+
+    /** 連續 10 分鐘都連不上控制器: 停止搜尋與喚醒鎖, 省電。使用者按「重新連線」或重新開啟 App 才會恢復 */
+    private fun pauseSearch() {
+        paused = true
+        h.removeCallbacks(connectRunnable)
+        h.removeCallbacks(connTimeout)
+        stopScan()
+        closeGatt()
+        releaseWake()
+        AppLog.w(TAG, "連續 10 分鐘找不到控制器, 已暫停搜尋以省電")
+        setStatus("已暫停搜尋 (10 分鐘找不到控制器), 按「重新連線」恢復")
+    }
+
+    private fun resumeSearch() {
+        if (!paused) return
+        paused = false
+        searchSince = 0L
+        acquireWake()
+        AppLog.i(TAG, "恢復搜尋控制器")
     }
 
     private fun startScan(ad: BluetoothAdapter) {

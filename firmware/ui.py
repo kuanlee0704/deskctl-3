@@ -98,8 +98,13 @@ def draw_topbar(c, title, st, link, now, h24=True, secs=False):
 class Marquee:
     """文字太長時左右來回捲動, 內容區自己的小畫布以免蓋到旁邊。"""
 
+    _shared = None          # 所有捲動文字共用同一塊緩衝區 (每次都是先畫完立刻貼到螢幕, 不會同時使用), 省下好幾 KB
+
     def __init__(self, font, w, color, h=12):
-        self.cv = Canvas(w, h, font)
+        n = w * h * 2
+        if Marquee._shared is None or len(Marquee._shared) < n:
+            Marquee._shared = bytearray(max(n, 152 * 12 * 2))
+        self.cv = Canvas(w, h, font, memoryview(Marquee._shared)[:n])
         self.w = w
         self.h = h
         self.color = color

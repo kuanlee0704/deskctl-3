@@ -85,6 +85,9 @@ class DevPage(Page):
         if k in (K_UP, K_DOWN) and ev in (EV_CLICK, EV_HOLD, EV_LONG):
             self.sub = (self.sub + (1 if k == K_DOWN else -1)) % N
             return True
+        if k == K_CENTER and self.sub == 2 and ev == EV_CLICK:
+            self.app.free_mem()
+            return True
         if k in (K_UP, K_DOWN, K_CENTER):
             return ev in (EV_PRESS, EV_RELEASE, EV_CLICK, EV_DOUBLE, EV_TRIPLE)
         return False
@@ -168,7 +171,10 @@ class DevPage(Page):
             c.text("收集趨勢中…", 6, 40, FAINT)
         ff = flash_free()
         c.text("最低 " + kb(self.app.mem_min), 6, 66, DIM)
-        c.text_r(("儲存 " + size(ff)) if ff is not None else "", 154, 66, DIM)
+        if (now // 3000) % 2 == 0 or ff is None:
+            c.text_r("中鍵:清理", 154, 66, ACC)
+        else:
+            c.text_r("儲存 " + size(ff), 154, 66, DIM)
 
     def pg_link(self, c, now):
         lk = self.app.link
