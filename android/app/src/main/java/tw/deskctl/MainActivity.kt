@@ -453,10 +453,33 @@ class MainActivity : Activity() {
         }
         pref.addView(s3, LinearLayout.LayoutParams(-1, -2))
         val s4 = Switch(this)
-        s4.text = "智慧省電: 連續 10 分鐘找不到控制器就暫停搜尋"
+        s4.text = "智慧省電: 找不到控制器時, 每 10 分鐘才搜尋一次 (連上後保持連線)"
         s4.isChecked = Prefs.autoPause(this)
         s4.setOnCheckedChangeListener { _, c -> Prefs.setAutoPause(this, c) }
         pref.addView(s4, LinearLayout.LayoutParams(-1, -2))
+        val s5 = Switch(this)
+        s5.text = "設定「完全不搜尋」時段 (這段時間斷線也不會去搜尋)"
+        s5.isChecked = Prefs.quietOn(this)
+        pref.addView(s5, LinearLayout.LayoutParams(-1, -2))
+        val btnQuiet = Button(this)
+        fun quietText() {
+            btnQuiet.text = "不搜尋時段: " + String.format("%02d:%02d", Prefs.quietFrom(this) / 60, Prefs.quietFrom(this) % 60) +
+                " ~ " + String.format("%02d:%02d", Prefs.quietTo(this) / 60, Prefs.quietTo(this) % 60)
+            btnQuiet.isEnabled = Prefs.quietOn(this)
+        }
+        quietText()
+        s5.setOnCheckedChangeListener { _, c -> Prefs.setQuietOn(this, c); quietText() }
+        btnQuiet.setOnClickListener {
+            val f = Prefs.quietFrom(this)
+            android.app.TimePickerDialog(this, { _, fh, fm ->
+                val t = Prefs.quietTo(this)
+                android.app.TimePickerDialog(this, { _, th, tm ->
+                    Prefs.setQuiet(this, fh * 60 + fm, th * 60 + tm)
+                    quietText()
+                }, t / 60, t % 60, true).apply { setTitle("結束時間 (恢復搜尋)") }.show()
+            }, f / 60, f % 60, true).apply { setTitle("開始時間 (停止搜尋)") }.show()
+        }
+        pref.addView(btnQuiet, LinearLayout.LayoutParams(-1, -2))
 
         // ---- 手機訊息 ----
         val msgc = card(col)

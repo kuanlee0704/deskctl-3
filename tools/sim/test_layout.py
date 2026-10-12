@@ -302,8 +302,7 @@ for h24, secs, tsecs in itertools.product((0, 1), (0, 1), (0, 1)):
 
 # ---------- 系統總覽 ----------
 r = mk(); r.app.go("dev", clock.now); r.run(100)
-for n in (0, 3, 40):
-    r.app.mem_hist[:] = [90000 - i * 700 + (i % 5) * 900 for i in range(n)]
+for n in (0,):
     r.app.cur.sub = 0
     for i in range(5):
         snap(r, "dev n=%d sub=%d" % (n, r.app.cur.sub)); r.click(K_DOWN)

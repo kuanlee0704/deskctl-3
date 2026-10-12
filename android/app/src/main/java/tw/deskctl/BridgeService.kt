@@ -60,8 +60,9 @@ class BridgeService : Service() {
         // 給 MainActivity 顯示用的即時狀態
         @Volatile var status: String = "尚未啟動"
         @Volatile var running: Boolean = false
-        @Volatile var paused: Boolean = false            // 找不到控制器太久, 已自動暫停搜尋
-        const val GIVE_UP_MS = 10 * 60 * 1000L
+        @Volatile var paused: Boolean = false            // 休息中 (等下一輪搜尋, 或在「不搜尋時段」)
+        const val ROUND_MS = 60 * 1000L              // 每輪搜尋最久時間
+        const val RETRY_MS = 10 * 60 * 1000L           // 找不到時休息多久再搜尋
         @Volatile var connected: Boolean = false
         @Volatile var connectedSince: Long = 0L          // SystemClock.elapsedRealtime
         @Volatile var infoLines: List<String> = emptyList()
@@ -77,11 +78,13 @@ class BridgeService : Service() {
         set(v) {
             field = v
             connected = v
-            if (v) { searchSince = 0L; paused = false }
+            if (v) { searchSince = 0L; paused = false; forceSearch = false }
             connectedSince = if (v) SystemClock.elapsedRealtime() else 0L
         }
     private var mtu = 23
     private var scanning = false
+    private var forceSearch = false       // 使用者手動要求搜尋: 暫時不理會「不搜尋時段」
+    private val wakeSearch = Runnable { resumeSearch(); scheduleConnect(100) }
     private var searchSince = 0L          // 開始(連續)找不到控制器的時間, 連上就歸零
     private var inited = false
     private var tick = 0
@@ -148,10 +151,12 @@ class BridgeService : Service() {
             ACTION_FORGET -> {
                 Prefs.setMac(this, null)
                 AppLog.i(TAG, "已忘記控制器, 重新搜尋")
+                forceSearch = true
                 if (inited) { resumeSearch(); searchSince = 0L; stopScan(); closeGatt(); connectFails = 0; scheduleConnect(100) }
             }
             ACTION_RECONNECT -> {
                 AppLog.i(TAG, "手動重新連線")
+                forceSearch = true
                 if (inited) { resumeSearch(); searchSince = 0L; stopScan(); closeGatt(); connectFails = 0; scheduleConnect(100) }
             }
             ACTION_RUN -> {
@@ -174,6 +179,7 @@ class BridgeService : Service() {
         }
         startAsForeground()
         if (inited && paused && (intent?.action == null || intent?.action == ACTION_START)) {
+            forceSearch = true
             resumeSearch()                       // 使用者重新開啟 App / 按啟動: 恢復搜尋
             scheduleConnect(100)
         }
@@ -270,6 +276,7 @@ class BridgeService : Service() {
     private fun shutdown() {
         running = false
         inited = false
+        paused = false
         h.removeCallbacksAndMessages(null)
         eachFeature { it.stop() }
         releaseWake()
@@ -298,10 +305,15 @@ class BridgeService : Service() {
         if (!inited) return
         if (gatt != null || scanning) return          // 已在連線/掃描中, 不要重複動作 (否則會把好好的連線關掉)
         if (paused) return
+        if (!forceSearch && Prefs.quietOn(this) && inQuiet()) {
+            val left = quietLeftMs()
+            sleepSearch(left, "不搜尋時段, " + fmtMin(Prefs.quietTo(this)) + " 後恢復")
+            return
+        }
         val nowMs = SystemClock.elapsedRealtime()
         if (searchSince == 0L) searchSince = nowMs
-        if (Prefs.autoPause(this) && nowMs - searchSince > GIVE_UP_MS) {
-            pauseSearch()
+        if (Prefs.autoPause(this) && nowMs - searchSince > ROUND_MS) {
+            sleepSearch(RETRY_MS, "找不到控制器, 10 分鐘後再搜尋")
             return
         }
         val ad = adapter()
@@ -329,19 +341,43 @@ class BridgeService : Service() {
         }
     }
 
-    /** 連續 10 分鐘都連不上控制器: 停止搜尋與喚醒鎖, 省電。使用者按「重新連線」或重新開啟 App 才會恢復 */
-    private fun pauseSearch() {
+    private fun nowMin(): Int {
+        val c = java.util.Calendar.getInstance()
+        return c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE)
+    }
+
+    private fun inQuiet(): Boolean {
+        val f = Prefs.quietFrom(this)
+        val t = Prefs.quietTo(this)
+        val n = nowMin()
+        return if (f == t) false else if (f < t) n in f until t else (n >= f || n < t)
+    }
+
+    private fun quietLeftMs(): Long {
+        val t = Prefs.quietTo(this)
+        val n = nowMin()
+        val d = if (t > n) t - n else t - n + 24 * 60
+        return d.coerceAtLeast(1) * 60_000L
+    }
+
+    private fun fmtMin(m: Int): String = String.format("%02d:%02d", m / 60, m % 60)
+
+    /** 休息一段時間再搜尋 (省電): 停止掃描/連線與喚醒鎖, 時間到自動恢復。使用者按「重新連線」可提前恢復 */
+    private fun sleepSearch(ms: Long, why: String) {
         paused = true
         h.removeCallbacks(connectRunnable)
         h.removeCallbacks(connTimeout)
+        h.removeCallbacks(wakeSearch)
         stopScan()
         closeGatt()
         releaseWake()
-        AppLog.w(TAG, "連續 10 分鐘找不到控制器, 已暫停搜尋以省電")
-        setStatus("已暫停搜尋 (10 分鐘找不到控制器), 按「重新連線」恢復")
+        h.postDelayed(wakeSearch, ms)
+        AppLog.w(TAG, "暫停搜尋 " + ms / 60000 + " 分鐘: " + why)
+        setStatus("休息中 ($why), 按「重新連線」可立即搜尋")
     }
 
     private fun resumeSearch() {
+        h.removeCallbacks(wakeSearch)
         if (!paused) return
         paused = false
         searchSince = 0L

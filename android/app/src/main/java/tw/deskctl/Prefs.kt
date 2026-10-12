@@ -31,9 +31,16 @@ object Prefs {
     fun wakeLock(c: Context): Boolean = sp(c).getBoolean("wake_lock", true)
     fun setWakeLock(c: Context, v: Boolean) { sp(c).edit().putBoolean("wake_lock", v).apply() }
 
-    /** 連續 10 分鐘找不到控制器就自動暫停搜尋 (省電), 預設開啟 */
+    /** 找不到控制器時, 每輪只搜尋約 1 分鐘, 之後休息 10 分鐘再試 (省電), 預設開啟; 連上就一直保持連線 */
     fun autoPause(c: Context): Boolean = sp(c).getBoolean("auto_pause", true)
     fun setAutoPause(c: Context, v: Boolean) { sp(c).edit().putBoolean("auto_pause", v).apply() }
+
+    /** 「完全不搜尋」時段 (例如睡覺時間), 單位: 一天中的第幾分鐘。這段時間內斷線也不會去搜尋 */
+    fun quietOn(c: Context): Boolean = sp(c).getBoolean("quiet_on", false)
+    fun setQuietOn(c: Context, v: Boolean) { sp(c).edit().putBoolean("quiet_on", v).apply() }
+    fun quietFrom(c: Context): Int = sp(c).getInt("quiet_from", 23 * 60)
+    fun quietTo(c: Context): Int = sp(c).getInt("quiet_to", 7 * 60)
+    fun setQuiet(c: Context, from: Int, to: Int) { sp(c).edit().putInt("quiet_from", from).putInt("quiet_to", to).apply() }
 
     /** 目錄設定 (JSON 物件, m=目錄順序 r=快速切換), 空字串 = 沿用控制器自己的設定 */
     fun layout(c: Context): String = sp(c).getString("layout", "") ?: ""

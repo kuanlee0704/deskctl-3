@@ -156,19 +156,9 @@ class DevPage(Page):
         c.text_r("剩 " + kb(f), 154, 14, FG)
         c.frect(6, 28, 148, 6, FAINT)
         c.frect(6, 28, max(2, 148 * used // 100), 6, col)
-        h = self.app.mem_hist
-        if len(h) >= 2:
-            lo, hi = min(h), max(h)
-            span = max(1, hi - lo)
-            n = len(h)
-            bw = 148 // 30
-            x = 6 + (30 - n) * bw
-            for v in h:
-                bh = 2 + (v - lo) * 16 // span
-                c.frect(x, 56 - bh, bw - 1, bh, ACC)
-                x += bw
-        else:
-            c.text("收集趨勢中…", 6, 40, FAINT)
+        c.text("已用 " + kb(a), 6, 40, DIM)
+        c.text_r("總共 " + kb(tot), 154, 40, DIM)
+        c.text("程式頁面 %d 個在記憶體中" % len(self.app.insts), 6, 52, DIM)
         ff = flash_free()
         c.text("最低 " + kb(self.app.mem_min), 6, 66, DIM)
         if (now // 3000) % 2 == 0 or ff is None:
