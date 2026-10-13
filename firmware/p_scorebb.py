@@ -1,7 +1,7 @@
 """比分板: 棒球畫面 (獨立檔案, 需要時才載入以節省記憶體)
 v0 主畫面  v1 細節(每局得分 / 賽後勝敗)  v2 即時  v3 戰績與打序  (未開賽 v1 = 先發投手)"""
 from ui import *
-from p_scoret import bases, row, teams, pre_final, foot
+from p_scoret import bases, row, teams, pre_final, foot, bline
 
 
 def num(v):
@@ -20,13 +20,17 @@ def draw(p, c, sc, v, g):
     elif v == 1:
         detail(p, c, sc)
     else:
-        lv = p._sub("p_scorelv")
-        if lv is None:
+        # 進行中: 2 即時 3 戰績打序 4 得分紀錄;  完賽: 2 得分紀錄 3 打點與全壘打
+        sp = (v == 4) if st == "L" else (v in (2, 3))
+        m = p._sub("p_scoresp" if sp else "p_scorelv")
+        if m is None:
             c.text("記憶體不足, 稍後重試", 6, 30, WARN)
+        elif sp:
+            (m.stars if (st == "F" and v == 3) else m.plays)(p, c, sc)
         elif v == 2:
-            lv.live(p, c, sc)
+            m.live(p, c, sc)
         else:
-            lv.roster(p, c, sc)
+            m.roster(p, c, sc)
 
 
 def main(p, c, sc):
@@ -48,6 +52,8 @@ def main(p, c, sc):
         c.text("%d局" % sc.get("in", 9), R, 28, FG)
         c.text("安打 %d:%d" % (sc.get("ah", 0), sc.get("hh", 0)), R, 42, DIM)
         c.text("失誤 %d:%d" % (sc.get("ae", 0), sc.get("he", 0)), R, 56, DIM)
+        if sc.get("tm"):
+            c.text(sc["tm"], R, 68, FAINT)
         return
     inn = sc.get("in", 1)
     tx = sc.get("tx") or ("%d局" % inn)
@@ -63,7 +69,7 @@ def main(p, c, sc):
             c.frect(R + 12 + i * 9, y, 6, 6, col if i < val else FAINT)
     if sc.get("bavg"):
         c.text("打", R, 56, DIM)
-        c.text(sc.get("bavg", "") + (" " + sc["bhab"] if sc.get("bhab") else ""), R + 16, 56, FG)
+        c.text(bline(c, sc, 66), R + 16, 56, FG)
     if sc.get("pc") is not None:
         c.text("投", R, 68, DIM)
         c.text("%d球" % sc["pc"] + (" %s局" % sc["pip"] if sc.get("pip") else ""), R + 16, 68, FG)
@@ -107,7 +113,7 @@ def detail(p, c, sc):
         c.text_r(ex, 156, 67, DIM)
         p._txt(c, "lp", sc.get("lp") or "--", 16, 67, 138 - c.text_w(ex) - 4, FG)
         return
-    row(p, c, "bt", "打", sc.get("bt"), (sc.get("bavg", "") + " " + sc.get("bhab", "")).strip(), 55)
+    row(p, c, "bt", "打", sc.get("bt"), bline(c, sc, 70), 55)
     ex = ""
     if sc.get("pc") is not None:
         ex = "%d球" % sc["pc"]

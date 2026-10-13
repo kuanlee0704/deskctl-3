@@ -59,6 +59,23 @@ class DeskAccess : AccessibilityService() {
             return s.doClickFirstVideo()
         }
 
+        /** 往某方向滾動一格 (u/d/l/r, pct = 滑動距離占畫面的百分比); 上一筆手勢還沒跑完就略過這一次 */
+        fun scroll(dir: String, pct: Float): Boolean {
+            val s = instance ?: return false
+            return s.doScroll(dir, pct)
+        }
+
+        /** 長按畫面某位置 */
+        fun press(xPct: Float, yPct: Float, ms: Long): Boolean {
+            val s = instance ?: return false
+            return s.doPress(xPct, yPct, ms)
+        }
+
+        fun notifications(): Boolean {
+            val s = instance ?: return false
+            return s.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
+        }
+
         fun recents(): Boolean {
             val s = instance ?: return false
             return s.performGlobalAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
@@ -109,6 +126,40 @@ class DeskAccess : AccessibilityService() {
         p.moveTo(dm.widthPixels * xp / 100f, dm.heightPixels * yp / 100f)
         val g = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(p, 0L, 80L))
+            .build()
+        return dispatchGesture(g, null, null)
+    }
+
+    @Volatile private var scrollBusyUntil = 0L
+
+    private fun doScroll(dir: String, pct0: Float): Boolean {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now < scrollBusyUntil) return true
+        val pct = pct0.coerceIn(5f, 70f) / 100f
+        val dm = realMetrics()
+        val w = dm.widthPixels.toFloat()
+        val h = dm.heightPixels.toFloat()
+        val p = Path()
+        when (dir) {
+            "d" -> { p.moveTo(w * 0.5f, h * 0.70f); p.lineTo(w * 0.5f, h * (0.70f - pct)) }
+            "u" -> { p.moveTo(w * 0.5f, h * 0.30f); p.lineTo(w * 0.5f, h * (0.30f + pct)) }
+            "r" -> { p.moveTo(w * 0.75f, h * 0.5f); p.lineTo(w * (0.75f - pct), h * 0.5f) }
+            else -> { p.moveTo(w * 0.25f, h * 0.5f); p.lineTo(w * (0.25f + pct), h * 0.5f) }
+        }
+        val dur = 220L
+        scrollBusyUntil = now + dur + 40L
+        val g = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(p, 0L, dur))
+            .build()
+        return dispatchGesture(g, null, null)
+    }
+
+    private fun doPress(xp: Float, yp: Float, ms: Long): Boolean {
+        val dm = realMetrics()
+        val p = Path()
+        p.moveTo(dm.widthPixels * xp / 100f, dm.heightPixels * yp / 100f)
+        val g = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(p, 0L, ms.coerceIn(100L, 5000L)))
             .build()
         return dispatchGesture(g, null, null)
     }

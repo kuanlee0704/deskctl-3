@@ -64,7 +64,7 @@ def fmt_ms(ms):
     return "%d:%02d" % (s // 60, s % 60)
 
 
-def draw_topbar(c, title, st, link, now, h24=True, secs=False):
+def draw_topbar(c, title, st, link, now, h24=True, secs=False, tag=""):
     """secs = 狀態欄是否顯示秒 (設定 tsecs, 與首頁的秒數設定分開)"""
     c.frect(0, 0, 160, TOP_H - 1, BAR)
     c.hline(0, TOP_H - 1, 160, FAINT)
@@ -91,6 +91,10 @@ def draw_topbar(c, title, st, link, now, h24=True, secs=False):
         x -= 9
         c.icon(IC["stopw"], x, 1, WARN)
         x -= 3
+    if tag:                                  # 小標靠右固定畫出 (在圖示左邊), 標題只用剩下的空間
+        x -= c.text_w(tag)
+        c.text(tag, x, 0, WARN)
+        x -= 2
     c.text(clip_text(c, title, x - 6), 4, 0, ACC)
     return x
 

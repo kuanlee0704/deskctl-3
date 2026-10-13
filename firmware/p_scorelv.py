@@ -1,6 +1,6 @@
 """比分板: 棒球即時與戰績畫面 (獨立檔案, 進入這兩頁時才載入)"""
 from ui import *
-from p_scoret import bases, row, teams, pre_final, foot
+from p_scoret import bases, row, teams, pre_final, foot, bline
 
 
 # ---------- 即時 ----------
@@ -38,7 +38,7 @@ def live(p, c, sc):
         p._txt(c, "lr", (lr + " " + sc.get("ln", "")).strip(), 2, 68, 70, res_col(lr))
     c.text("打", 78, 27, DIM)
     p._txt(c, "bt", sc.get("bt") or "--", 92, 27, 66, FG)
-    c.text((sc.get("bavg", "") + " " + sc.get("bhab", "")).strip() or "--", 92, 39, FG)
+    c.text(bline(c, sc, 66) or "--", 92, 39, FG)
     c.text("投", 78, 51, DIM)
     p._txt(c, "pt", sc.get("pt") or "--", 92, 51, 66, FG)
     pc = sc.get("pc")
@@ -51,7 +51,7 @@ def roster(p, c, sc):
     x = c.text(" " + sc.get("ar", "--"), x, 13, DIM)
     x = c.text("   " + sc.get("h", "?"), x, 13, ACC)
     c.text(" " + sc.get("hr", "--"), x, 13, DIM)
-    row(p, c, "bt", "打", sc.get("bt"), (sc.get("bavg", "") + " " + sc.get("bhab", "")).strip(), 26)
+    row(p, c, "bt", "打", sc.get("bt"), bline(c, sc, 70), 26)
     row(p, c, "n1", "次", sc.get("n1"), sc.get("v1", ""), 38)
     row(p, c, "n2", "次", sc.get("n2"), sc.get("v2", ""), 50)
     ex = " ".join(x for x in (("ERA " + sc["pe"]) if sc.get("pe") else "", ("%sK" % sc["pk"]) if sc.get("pk") is not None else "") if x)

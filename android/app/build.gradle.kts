@@ -10,8 +10,8 @@ android {
         applicationId = "tw.deskctl"
         minSdk = 26
         targetSdk = 34
-        versionCode = 20
-        versionName = "1.8.1"
+        versionCode = 22
+        versionName = "1.10.0"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

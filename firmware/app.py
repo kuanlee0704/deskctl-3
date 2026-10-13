@@ -50,6 +50,10 @@ class Page:
     def get_title(self):
         return self.title
 
+    def get_tag(self):
+        """狀態欄右側固定顯示的小標 (例如比分板的「距離上次更新」), 一定會畫出來, 標題才是空間不夠時被縮短的"""
+        return ""
+
 
 class MenuPage(Page):
     """目錄: 上下選, 中央進入, 右鍵加入/移出快捷切換(★), 左鍵返回"""
@@ -433,7 +437,7 @@ class App:
             self.cur.draw(c, now)
         finally:
             ui.draw_topbar(c, self.cur.get_title(), self.st, self.link, now,
-                           self.st.cfg.get("h24"), bool(self.st.cfg.get("tsecs")))
+                           self.st.cfg.get("h24"), bool(self.st.cfg.get("tsecs")), self.cur.get_tag())
         if holding:
             self.draw_hold(c, now)
         elif self._toast is not None:

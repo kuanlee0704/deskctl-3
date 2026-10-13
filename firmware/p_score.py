@@ -67,6 +67,7 @@ class ScorePage(Page):
     def _sub(self, name):
         """第二層模組 (棒球即時/戰績); 只在需要的那兩頁載入, 回到別頁就卸載。載入失敗回傳 None"""
         if self._sn != name:
+            self._subdrop(False)               # 先卸載舊的第二層模組, 免得兩個同時佔著記憶體
             try:
                 gc.collect()
                 self._s = __import__(name)
@@ -104,7 +105,7 @@ class ScorePage(Page):
         return self.st.scores.get(self.sel)
 
     def _nv(self):
-        """目前這場比賽有幾個畫面"""
+        """目前這場比賽有幾個畫面 (MLB 進行中 5 / 完賽 4 / 未開賽 2; NBA 開賽後 5; 其他 2)"""
         sc = self._sc()
         n = len(self.st.games)
         if not sc or not n:
@@ -112,36 +113,43 @@ class ScorePage(Page):
         lg = self.st.games[min(self.sel, n - 1)][0]
         s = sc.get("st")
         if lg == "MLB":
-            return 4 if s == "L" else 2
+            return 5 if s == "L" else (4 if s == "F" else 2)
         if lg == "CPBL":
             return 1 if s == "P" else 2
-        return 1 if s == "P" else 2
+        return 1 if s == "P" else 5
 
     def _v(self):
         return self.view if self.view < self._nv() else 0
 
     def _age_s(self):
-        """進行中的比賽: 距離上次更新幾秒 (非進行中回傳 -1)"""
-        sc = self._sc()
+        """距離上次收到這場資料幾秒 (還沒收到資料回傳 -1)。不分比賽狀態, 讓你隨時知道資料新不新"""
         t = self.st.score_t.get(self.sel)
-        if not sc or t is None or sc.get("st") != "L":
+        if t is None or not self._sc():
             return -1
         return time.ticks_diff(self._now, t) // 1000
+
+    def get_tag(self):
+        a = self._age_s()
+        if a < 0:
+            return ""
+        return "(:%02d)" % a if a < 60 else ("(%02d:)" % (a // 60) if a < 6000 else "(--)")
 
     def get_title(self):
         n = len(self.st.games)
         if not n:
             return "比分板"
-        a = self._age_s()
-        ag = ""
-        if a >= 0:
-            ag = " (:%02d)" % a if a < 60 else (" (%02d:)" % (a // 60) if a < 6000 else " (--)")
         v = self._v()
         sc = self._sc()
         vl = ""
         if v:
-            vl = " 即" if v == 2 else (" 戰" if v == 3 else (" 先" if sc and sc.get("st") == "P" else " 詳"))
-        return "%s %d/%d%s%s" % (self.st.games[min(self.sel, n - 1)][0], self.sel + 1, n, vl, ag)
+            lg = self.st.games[min(self.sel, n - 1)][0]
+            s = sc.get("st") if sc else None
+            if lg == "MLB":
+                lab = {"L": " 詳即戰得", "F": " 詳得星", "P": " 詳先"}.get(s, " 詳")
+            else:
+                lab = " 詳投助員"
+            vl = lab[v] if v < len(lab) else ""
+        return "%s%d/%d%s" % (self.st.games[min(self.sel, n - 1)][0], self.sel + 1, n, vl)
 
     # ---------- 籃球計時器: 手機每幾秒給一次剩餘時間, 中間在這裡往下推算 ----------
     def clk(self, sc, now):

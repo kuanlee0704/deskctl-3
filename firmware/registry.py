@@ -10,6 +10,7 @@ PAGES = (
     ("dev", "系統總覽", "p_dev", "DevPage", "main"),
     ("msg", "手機訊息", "p_msg", "MsgPage", "main"),
     ("act", "捷徑", "p_shortcuts", "ShortcutsPage", "main"),
+    ("pad", "手機控制", "p_pad", "PadPage", "main"),
     ("sys", "手機狀態", "p_sys", "SysPage", "main"),
     ("manual", "說明書", "p_manual", "ManualPage", "main"),
     ("settings", "快捷設定", "p_settings", "SettingsPage", "main"),

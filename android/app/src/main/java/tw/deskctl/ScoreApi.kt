@@ -137,7 +137,7 @@ object ScoreApi {
         }
         for ((idx, t) in list.withIndex()) {
             val o = when (t.lg) {
-                "NBA" -> fetchNba(t)
+                "NBA" -> fetchNba(t, detail && idx == sel)
                 "CPBL" -> fetchCpbl(t)
                 else -> null
             } ?: continue
@@ -149,7 +149,7 @@ object ScoreApi {
     private fun base(t: Tracked, st: String): JSONObject {
         val o = JSONObject().put("lg", t.lg).put("st", st).put("a", t.a).put("h", t.h)
             .put("tn", Teams.cn(t.lg, t.a) + " v " + Teams.cn(t.lg, t.h))
-        if (st == "P") o.put("tm", fmtTime(t.startMs))
+        o.put("tm", fmtTime(t.startMs))            // 開賽日期時間 (台灣時間), 完賽畫面也要顯示
         return o
     }
 
@@ -260,7 +260,7 @@ object ScoreApi {
                         o.put("bs", bs)
                         ls.optJSONObject("defense")?.optJSONObject("pitcher")?.optString("fullName")?.let { o.put("pt", lastName(it)) }
                     }
-                    if (st == "L" && !mid && id == selId) mlbLive(id, o)
+                    if (id == selId && (st == "L" || st == "F")) mlbFeed(id, o, st == "L" && !mid, st == "F")
                     val lt = ls.optJSONObject("teams")
                     o.put("ah", lt?.optJSONObject("away")?.optInt("hits") ?: 0).put("hh", lt?.optJSONObject("home")?.optInt("hits") ?: 0)
                     o.put("ae", lt?.optJSONObject("away")?.optInt("errors") ?: 0).put("he", lt?.optJSONObject("home")?.optInt("errors") ?: 0)
@@ -340,15 +340,65 @@ object ScoreApi {
         else -> ev.take(3).uppercase()
     }
 
+    /** 得分紀錄: 最近 10 個得分打席, 每筆依序是 局, 上下半(0上1下), 打者, 結果, 客隊分, 主隊分, 打點 */
+    private fun mlbScoring(plays: JSONObject, o: JSONObject) {
+        val idx = plays.optJSONArray("scoringPlays") ?: return
+        val all = plays.optJSONArray("allPlays") ?: return
+        val arr = JSONArray()
+        for (j in maxOf(0, idx.length() - 10) until idx.length()) {
+            val pl = all.optJSONObject(idx.optInt(j)) ?: continue
+            val ab = pl.optJSONObject("about") ?: continue
+            val rs = pl.optJSONObject("result") ?: continue
+            val who = pl.optJSONObject("matchup")?.optJSONObject("batter")?.optString("fullName") ?: ""
+            arr.put(JSONArray().put(ab.optInt("inning")).put(if (ab.optString("halfInning") == "bottom") 1 else 0)
+                .put(lastName(who)).put(evAbbr(rs.optString("event"))).put(rs.optInt("awayScore")).put(rs.optInt("homeScore")).put(rs.optInt("rbi")))
+        }
+        if (arr.length() > 0) o.put("sp", arr)
+    }
+
+    /** 賽後: 各隊打點球員與全壘打 */
+    private fun mlbStars(teams: JSONObject, o: JSONObject) {
+        val hr = ArrayList<String>()
+        for ((side, key) in listOf("away" to "ra", "home" to "rh")) {
+            val ps = teams.optJSONObject(side)?.optJSONObject("players") ?: continue
+            val rows = ArrayList<Triple<String, Int, Int>>()
+            for (k in ps.keys()) {
+                val p = ps.optJSONObject(k) ?: continue
+                val b = p.optJSONObject("stats")?.optJSONObject("batting") ?: continue
+                val name = lastName(p.optJSONObject("person")?.optString("fullName") ?: "")
+                val rbi = b.optInt("rbi")
+                val h = b.optInt("homeRuns")
+                if (rbi > 0 || h > 0) rows.add(Triple(name, rbi, h))
+                if (h > 0) hr.add(if (h > 1) "$name x$h" else name)
+            }
+            val s = rows.filter { it.second > 0 }.sortedByDescending { it.second }.take(3).joinToString(", ") { it.first + " " + it.second }
+            if (s.isNotEmpty()) o.put(key, s)
+        }
+        if (hr.isNotEmpty()) o.put("hrs", hr.joinToString(", "))
+    }
+
     /** 即時細節 (只抓控制器正在看的那一場): 打者/投手/下兩棒、上一球球種球速、上一個打席結果 */
-    private fun mlbLive(pk: String, o: JSONObject) {
+    private val mlbFinalCache = HashMap<String, JSONObject>()
+
+    private fun mlbFeed(pk: String, o: JSONObject, wantLive: Boolean, final: Boolean) {
+        if (final) {
+            mlbFinalCache[pk]?.let { c -> for (k in c.keys()) o.put(k, c.get(k)); return }
+        }
         val txt = http("https://statsapi.mlb.com/api/v1.1/game/$pk/feed/live") ?: return
         try {
             val live = JSONObject(txt).getJSONObject("liveData")
             val plays = live.getJSONObject("plays")
+            val teams = live.getJSONObject("boxscore").getJSONObject("teams")
+            mlbScoring(plays, o)
+            if (final) {
+                mlbStars(teams, o)
+                val keep = JSONObject()
+                for (k in listOf("sp", "ra", "rh", "hrs")) if (o.has(k)) keep.put(k, o.get(k))
+                if (keep.length() > 0) mlbFinalCache[pk] = keep
+            }
+            if (!wantLive) return
             val cur = plays.optJSONObject("currentPlay")
             val m = cur?.optJSONObject("matchup") ?: return
-            val teams = live.getJSONObject("boxscore").getJSONObject("teams")
             fun player(id: Int): JSONObject? {
                 for (side in listOf("away", "home")) {
                     val p = teams.getJSONObject(side).optJSONObject("players")?.optJSONObject("ID$id")
@@ -364,6 +414,7 @@ object ScoreApi {
                 val bs = p?.optJSONObject("stats")?.optJSONObject("batting") ?: return ""
                 return bs.optInt("hits").toString() + "-" + bs.optInt("atBats")
             }
+            fun rbiOf(p: JSONObject?): Int = p?.optJSONObject("stats")?.optJSONObject("batting")?.optInt("rbi") ?: 0
             val b = m.optJSONObject("batter")
             val p = m.optJSONObject("pitcher")
             if (b != null) {
@@ -371,6 +422,7 @@ object ScoreApi {
                 val bp = player(b.optInt("id"))
                 avgOf(bp).let { if (it.isNotEmpty()) o.put("bavg", it) }
                 habOf(bp).let { if (it.isNotEmpty()) o.put("bhab", it) }
+                rbiOf(bp).let { if (it > 0) o.put("brbi", it) }
             }
             if (p != null) {
                 o.put("pt", lastName(p.optString("fullName")))
@@ -392,7 +444,8 @@ object ScoreApi {
                 val nb = off?.optJSONObject(key) ?: continue
                 o.put("n$k", lastName(nb.optString("fullName")))
                 val np = player(nb.optInt("id"))
-                o.put("v$k", (avgOf(np) + " " + habOf(np)).trim())
+                val rb = rbiOf(np)
+                o.put("v$k", (avgOf(np) + " " + habOf(np) + (if (rb > 0) " 打$rb" else "")).trim())
                 k++
             }
             // 上一球 (目前打席還沒投球就往前一個打席找)
@@ -618,6 +671,78 @@ object ScoreApi {
         return "%d:%02d".format(mm, ss)
     }
 
+    private val nbaLast = HashMap<String, Triple<Int, Int, Pair<Int, Int>>>()   // 比賽 id -> 客分, 主分, (最近得分隊, 分數)
+
+    /** 球隊數據與球員 (只對控制器正在看的那場) */
+    private fun nbaExtra(at: JSONObject, ht: JSONObject, o: JSONObject) {
+        fun pct(s: JSONObject?, k: String): Int = Math.round((s?.optDouble(k, 0.0) ?: 0.0) * 100).toInt()
+        fun ts(team: JSONObject): JSONArray {
+            val s = team.optJSONObject("statistics")
+            return JSONArray().put(pct(s, "fieldGoalsPercentage")).put(pct(s, "threePointersPercentage")).put(pct(s, "freeThrowsPercentage"))
+                .put(s?.optInt("reboundsTotal") ?: 0).put(s?.optInt("assists") ?: 0).put(s?.optInt("turnoversTotal") ?: 0)
+                .put(s?.optInt("pointsInThePaint") ?: 0).put(s?.optInt("pointsFastBreak") ?: 0)
+        }
+        fun leaders(team: JSONObject): JSONArray {
+            val ps = team.optJSONArray("players") ?: return JSONArray()
+            val rows = ArrayList<JSONObject>()
+            for (i in 0 until ps.length()) {
+                val p = ps.optJSONObject(i) ?: continue
+                if (p.optJSONObject("statistics") != null) rows.add(p)
+            }
+            rows.sortByDescending { it.getJSONObject("statistics").optInt("points") }
+            val out = JSONArray()
+            for (p in rows.take(2)) {
+                val s = p.getJSONObject("statistics")
+                val nm = p.optString("nameI").ifEmpty { lastName(p.optString("name")) }
+                out.put(JSONArray().put(nm).put(s.optInt("points")).put(s.optInt("reboundsTotal")).put(s.optInt("assists")))
+            }
+            return out
+        }
+        o.put("ta", ts(at)).put("th", ts(ht)).put("la", leaders(at)).put("lh", leaders(ht))
+    }
+
+    /** 最近一次得分 (哪隊、幾分、誰投進): 先看逐球紀錄, 抓不到就用兩次比分的差推算 */
+    private fun nbaLastScore(t: Tracked, o: JSONObject) {
+        var team = -1
+        var pts = 0
+        var who = ""
+        try {
+            val txt = http("https://cdn.nba.com/static/json/liveData/playbyplay/playbyplay_${t.id}.json", null, nbaHeaders)
+            val acts = if (txt != null) JSONObject(txt).getJSONObject("game").optJSONArray("actions") else null
+            if (acts != null) {
+                for (i in acts.length() - 1 downTo 1) {
+                    val x = acts.getJSONObject(i)
+                    if (!x.optString("shotResult").equals("Made", true)) continue
+                    val p = acts.getJSONObject(i - 1)
+                    val da = x.optString("scoreAway").toIntOrNull()?.minus(p.optString("scoreAway").toIntOrNull() ?: 0) ?: 0
+                    val dh = x.optString("scoreHome").toIntOrNull()?.minus(p.optString("scoreHome").toIntOrNull() ?: 0) ?: 0
+                    if (da <= 0 && dh <= 0) continue
+                    team = if (da > dh) 0 else 1
+                    pts = maxOf(da, dh)
+                    val kind = when (x.optString("actionType")) { "3pt" -> "3PT"; "2pt" -> "2PT"; "freethrow" -> "FT"; else -> "" }
+                    who = (x.optString("playerNameI").ifEmpty { x.optString("playerName") } + " " + kind).trim()
+                    break
+                }
+            }
+        } catch (e: Exception) {
+            AppLog.w("SCORE", "NBA 逐球紀錄解析失敗: $e")
+        }
+        val a = o.optInt("as")
+        val h = o.optInt("hs")
+        val prev = nbaLast[t.id]
+        if (team < 0 && prev != null) {                    // 退而求其次: 和上次比分比較
+            val da = a - prev.first
+            val dh = h - prev.second
+            if (da > 0 || dh > 0) { team = if (da > dh) 0 else 1; pts = maxOf(da, dh) }
+            else if (prev.third.second > 0) { team = prev.third.first; pts = prev.third.second }
+        }
+        nbaLast[t.id] = Triple(a, h, if (team >= 0) Pair(team, pts) else (prev?.third ?: Pair(-1, 0)))
+        if (team >= 0 && pts > 0) {
+            o.put("ks", pts).put("kt", team)
+            if (who.isNotEmpty()) o.put("kn", who)
+        }
+    }
+
     private fun periodScores(arr: JSONArray?): JSONArray {
         val out = JSONArray()
         if (arr == null) return out
@@ -625,7 +750,7 @@ object ScoreApi {
         return out
     }
 
-    private fun fetchNba(t: Tracked): JSONObject? {
+    private fun fetchNba(t: Tracked, full: Boolean = false): JSONObject? {
         if (t.src == "espn") return fetchEspnNba(t)
         val now = System.currentTimeMillis()
         val txt = http("https://cdn.nba.com/static/json/liveData/boxscore/boxscore_${t.id}.json", null, nbaHeaders)
@@ -657,6 +782,10 @@ object ScoreApi {
             o.put("ab", if (at.optString("inBonus") in listOf("1", "true")) 1 else 0)
             o.put("hb", if (ht.optString("inBonus") in listOf("1", "true")) 1 else 0)
             o.put("aq", periodScores(at.optJSONArray("periods"))).put("hq", periodScores(ht.optJSONArray("periods")))
+            if (full && st != "P") {
+                nbaExtra(at, ht, o)
+                if (st == "L") nbaLastScore(t, o)
+            }
             return o
         } catch (e: Exception) {
             AppLog.w("SCORE", "NBA boxscore 解析失敗: $e")

@@ -323,21 +323,23 @@ r.click(K_CENTER); snap(r, "msg marked detail")
 r = mk(); r.app.go("score", clock.now); r.run(100); snap(r, "score empty")
 r.msg(k="games", l=[["MLB", "NYY", "BOS"], ["NBA", "LAL", "GSW"], ["CPBL", "樂天", "統一"], ["MLB", "SF", "LAD"]]); r.run(100)
 snap(r, "score waiting")
-base_live = dict(k="score", i=0, lg="MLB", st="L", a="NYY", h="BOS", **{"as": 12, "hs": 3}, **{"in": 10, "hf": 1, "tx": "10局", "b": 3, "s": 2, "o": 2, "bs": 7, "ah": 14, "hh": 5, "ae": 1, "he": 0, "bt": "Judge-Longname", "pt": "Crochet", "bavg": ".312", "bhab": "2-4", "lt": "FF", "lv": "95.3", "lr": "1B", "ln": "S. Ohtani-LongName", "n1": "J. Soto-LongName", "v1": ".288 1-3", "n2": "A. Rizzo", "v2": ".250 0-2", "pe": "2.85", "pk": 7, "pbb": 2, "ar": "90-72", "hr": "85-77", "ap": "G. Crochet-LongLongName", "hp": "B. Woodruff", "ax": "12-5 ERA 2.85", "hx": "10-7 ERA 3.40", "pc": 87, "wp": "Crochet", "lp": "Fedde-LongName", "sv": "Clase-Long", "pip": "5.1", "per": 2, "ai": [0, 1, 0, 0, 3, 0, 5, 0, 0, 3], "hi": [0, 0, 1, 0, 0, 2, 0, 0, 0]})
+base_live = dict(k="score", i=0, lg="MLB", st="L", a="NYY", h="BOS", **{"as": 12, "hs": 3}, **{"in": 10, "hf": 1, "tx": "10局", "b": 3, "s": 2, "o": 2, "bs": 7, "ah": 14, "hh": 5, "ae": 1, "he": 0, "bt": "Judge-Longname", "pt": "Crochet", "bavg": ".312", "bhab": "2-4", "lt": "FF", "lv": "95.3", "lr": "1B", "ln": "S. Ohtani-LongName", "n1": "J. Soto-LongName", "v1": ".288 1-3", "n2": "A. Rizzo", "v2": ".250 0-2", "pe": "2.85", "pk": 7, "pbb": 2, "ar": "90-72", "hr": "85-77", "ap": "G. Crochet-LongLongName", "hp": "B. Woodruff", "ax": "12-5 ERA 2.85", "hx": "10-7 ERA 3.40", "pc": 87, "wp": "Crochet", "lp": "Fedde-LongName", "sv": "Clase-Long", "pip": "5.1", "per": 2, "ai": [0, 1, 0, 0, 3, 0, 5, 0, 0, 3], "hi": [0, 0, 1, 0, 0, 2, 0, 0, 0], "brbi": 2, "tm": "10/12 19:10", "ra": "S. Ohtani-LongName 3, F. Freeman 2, M. Betts 1", "rh": "J. Soto 2", "hrs": "S. Ohtani x2, A. Judge, J. Soto-Long", "sp": [[1, 0, "S. Ohtani", "HR", 1, 0, 1], [3, 1, "J. Soto-LongName", "2B", 1, 2, 2], [4, 0, "M. Betts", "1B", 3, 2, 1], [5, 1, "A. Judge", "HR", 3, 4, 2], [6, 0, "F. Freeman", "GO", 4, 4, 1], [7, 1, "J. Soto", "1B", 4, 5, 1], [8, 0, "S. Ohtani", "HR", 6, 5, 2]]})
 for bs in (0, 1, 2, 4, 7):
     for st in ("L", "P", "F"):
         d = dict(base_live, bs=bs, st=st, tm="10/12 19:10")
         r.msg(**d); r.run(50)
         r.app.cur.sel = 0
-        for v in (0, 1, 2, 3):
+        for v in (0, 1, 2, 3, 4):
             r.app.cur.view = v; snap(r, "mlb bs=%d st=%s v=%d" % (bs, st, v))
 for ai, hi in (([], []), ([0] * 9, [0] * 8), ([1] * 12, [2] * 11)):
     r.msg(**dict(base_live, ai=ai, hi=hi, st="L")); r.run(50)
-    for v in (0, 1, 2, 3):
+    for v in (0, 1, 2, 3, 4):
         r.app.cur.view = v; snap(r, "mlb innings %d v=%d" % (len(ai), v))
+r.msg(**dict(base_live, sp=[], ra="", rh="", hrs="", st="F")); r.run(50)
+for v in (2, 3): r.app.cur.view = v; snap(r, "mlb final empty v=%d" % v)
 r.msg(**dict(base_live, **{"as": 0, "hs": 0, "mid": 1, "tx": "3中", "b": 0, "s": 0, "o": 0, "bs": 0, "in": 3, "hf": 1})); r.run(50)
 for v in (0, 2): r.app.cur.view = v; snap(r, "mlb middle v=%d" % v)
-bk = dict(k="score", i=1, lg="NBA", st="L", a="LAL", h="GSW", **{"as": 112, "hs": 108}, q=4, c="0:45", af=7, hf2=5, at=1, ht=0, ab=1, hb=0, aq=[28, 30, 25, 29], hq=[27, 25, 30, 26])
+bk = dict(k="score", i=1, lg="NBA", st="L", a="LAL", h="GSW", **{"as": 112, "hs": 108}, q=4, c="0:45", af=7, hf2=5, at=1, ht=0, ab=1, hb=0, aq=[28, 30, 25, 29], hq=[27, 25, 30, 26], ks=3, kt=1, kn="S. Curry-Longname 3PT", ta=[47, 36, 80, 44, 25, 12, 48, 14], th=[51, 40, 75, 38, 29, 9, 52, 10], la=[["A. Davis-Longname", 28, 12, 3], ["L. James", 25, 7, 9]], lh=[["S. Curry", 33, 5, 8], ["K. Thompson", 18, 3, 1]])
 for q, c_ in ((1, "12:00"), (2, "5:32"), (4, "0:45"), (5, "3:07"), (7, "0.8")):
     pass
 for q, cs_ in ((1, 7200), (2, 3320), (4, 453), (5, 187), (7, 8), (3, 12345)):
@@ -346,10 +348,15 @@ for q, cs_ in ((1, 7200), (2, 3320), (4, 453), (5, 187), (7, 8), (3, 12345)):
         d = dict(bk, q=q, c=c_, cs=cs_, cr=1, st=st, tm="10/12 09:30", aq=bk["aq"] + ([5] * (q - 4) if q > 4 else []), hq=bk["hq"] + ([4] * (q - 4) if q > 4 else []))
         r.msg(**d); r.run(50)
         r.app.cur.sel = 1
-        for v in (0, 1):
+        for v in (0, 1, 2, 3, 4):
             r.app.cur.view = v; snap(r, "nba q=%d st=%s v=%d" % (q, st, v))
 for qq in (1, 2, 4, 5):
     r.msg(**dict(bk, brk=1, st="L", q=qq, c="")); r.run(50); r.app.cur.view = 0; snap(r, "nba break q=%d" % qq)
+for kt_, ks_ in ((0, 2), (1, 3), (0, 1)):
+    r.msg(**dict(bk, ks=ks_, kt=kt_, af=12, hf2=11, **{"as": 120, "hs": 99})); r.run(50)
+    for v in (0, 4): r.app.cur.view = v; snap(r, "nba lastscore kt=%d v=%d" % (kt_, v))
+r.msg(**dict(bk, ks=None, ta=None, la=[], lh=[])); r.run(50)
+for v in (2, 4): r.app.cur.view = v; snap(r, "nba no extra v=%d" % v)
 r.msg(**dict(bk, hb=1, ab=1, **{"as": 100, "hs": 100})); r.run(50); r.app.cur.view = 1; snap(r, "nba both bonus")
 r.msg(**dict(k="score", i=2, lg="CPBL", st="L", a="樂天", h="統一", **{"as": 2, "hs": 1}, **{"in": 5, "hf": 0, "b": 1, "s": 1, "o": 1, "bs": 3, "ah": 4, "hh": 3, "ae": 0, "he": 0})); r.run(50)
 r.app.cur.sel = 2
@@ -357,6 +364,15 @@ for v in (0, 1):
     r.app.cur.view = v; snap(r, "cpbl v=%d" % v)
 for j in range(5):
     snap(r, "score switch %d" % j); r.click(K_RIGHT)
+
+# ---------- 手機控制頁 ----------
+r = mk(); r.app.go("pad", clock.now); r.run(100); snap(r, "pad empty")
+for labs in (["上滾", "下滾", "左滾", "右滾", "點擊"], ["音量+", "下一首", "音量-", "上一首", "播放"], ["Camera", "Messages", "Chrome", "Settings", "Gallery1"], ["", "", "", "", ""]):
+    r.msg(k="pad", n="模式名稱很長的八個", i=1, t=3, l=labs, g=5); r.run(300)
+    for rot in range(4):
+        r.app.cur.rot = rot; r.app.cur.dirty = True; snap(r, "pad %s rot=%d" % (labs[0], rot))
+r.app.cur._fl = 1; snap(r, "pad flash right")
+r.app.cur._fl = 4; snap(r, "pad flash center")
 
 # ---------- 設定 toast ----------
 r = mk(); r.app.go("sw", clock.now); r.app.toast("先暫停才能重設"); snap(r, "sw toast")

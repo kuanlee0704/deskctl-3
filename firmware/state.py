@@ -1,5 +1,6 @@
 """全域狀態: 設定、手機資訊、時間、碼表。"""
 import gc
+import os
 import time
 try:
     import ujson as json
@@ -17,11 +18,13 @@ DEFAULTS = {
 class Settings:
     def __init__(self):
         self.d = dict(DEFAULTS)
-        try:
-            with open(SETTINGS_FILE) as f:
-                self.d.update(json.load(f))
-        except Exception:
-            pass
+        for fn in (SETTINGS_FILE, SETTINGS_FILE + ".tmp"):
+            try:
+                with open(fn) as f:
+                    self.d.update(json.load(f))
+                break
+            except Exception:
+                pass
         self._dirty = False
 
     def get(self, k):
@@ -36,9 +39,15 @@ class Settings:
     def save(self):
         if not self._dirty:
             return
-        try:
-            with open(SETTINGS_FILE, "w") as f:
+        try:                                   # 先寫暫存檔再改名: 寫到一半斷電也不會弄壞原本的設定
+            tmp = SETTINGS_FILE + ".tmp"
+            with open(tmp, "w") as f:
                 json.dump(self.d, f)
+            try:
+                os.rename(tmp, SETTINGS_FILE)
+            except OSError:                    # 某些檔案系統不能覆蓋既有檔案: 先刪再改名
+                os.remove(SETTINGS_FILE)
+                os.rename(tmp, SETTINGS_FILE)
             self._dirty = False
         except Exception:
             pass
@@ -115,6 +124,8 @@ class State:
         self.repeat = 0          # 0 不循環 1 清單循環 2 單曲循環
         # 捷徑 (手機端設定, 名單由手機傳來)
         self.acts = []
+        self.pad = None          # 手機控制器: (模式名, 第幾組, 共幾組, [上 右 下 左 中央 的功能名], 有設兩下手勢的方向位元)
+        self.pad_v = 0
         self.layout_changed = False
         self.sys = {}            # 手機系統狀態 (電量/網路/記憶體…)
         self.sys_t = 0
@@ -248,6 +259,11 @@ class State:
             r = m.get("r", "")
             self.route = {"spk": RT_SPK, "bt": RT_BT, "wired": RT_WIRED}.get(r, RT_NONE)
             self.route_name = m.get("n", "")
+        elif k == "pad":
+            lb = [str(x)[:12] for x in (m.get("l") or [])][:5]
+            lb += [""] * (5 - len(lb))
+            self.pad = (str(m.get("n", ""))[:12], int(m.get("i", 0)), int(m.get("t", 1)), lb, int(m.get("g", 0)))
+            self.pad_v += 1
         elif k == "acts":
             self.acts = [str(x) for x in m.get("l", [])][:16]
         elif k == "sys":

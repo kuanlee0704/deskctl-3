@@ -56,6 +56,7 @@ class MainActivity : Activity() {
     private var tab = 0
     private lateinit var shortcutsPage: ShortcutsPage
     private lateinit var scorePage: ScorePage
+    private lateinit var padPage: PadPage
 
     // 版面
     private lateinit var content: FrameLayout
@@ -120,13 +121,15 @@ class MainActivity : Activity() {
         pages.add(buildStatus())
         pages.add(buildLog())
         pages.add(buildSettings())
+        padPage = PadPage(this)
+        pages.add(padPage.view)
         for (p in pages) content.addView(p, FrameLayout.LayoutParams(-1, -1))
 
         val bar = LinearLayout(this)
         bar.orientation = LinearLayout.HORIZONTAL
         bar.setBackgroundColor(C_CARD)
         bar.elevation = dp(8).toFloat()
-        val names = arrayOf("主頁", "捷徑", "比分", "狀態", "記錄", "設定")
+        val names = arrayOf("主頁", "捷徑", "比分", "狀態", "記錄", "設定", "控制")
         for (i in names.indices) {
             val t = TextView(this)
             t.text = names[i]
@@ -879,6 +882,7 @@ class MainActivity : Activity() {
         if (tab == 3) updateStatus()
         if (tab == 4) updateLog()
         if (tab == 5) updateLayoutEditor()
+        if (tab == 6) padPage.refresh()
         h.removeCallbacksAndMessages(null)
         h.postDelayed({ refresh() }, 1000)
     }

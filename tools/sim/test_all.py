@@ -277,17 +277,17 @@ check("score stored", r.st.scores.get(1, {}).get("q") == 2)
 check("start slot 0", a.cur.sel == 0)
 r.click(K_RIGHT); check("right -> next game", a.cur.sel == 1 and a.cur_id == "score", (a.cur.sel, a.cur_id))
 r.click(K_LEFT); r.click(K_LEFT); check("left wraps", a.cur.sel == 2)
-a.cur.sel = 1; r.click(K_DOWN); check("down -> detail view", a.cur.view == 1); r.click(K_UP); check("up -> main view", a.cur.view == 0)
+a.cur.sel = 1; r.click(K_DOWN); check("down wraps to last view", a.cur.view == 4, a.cur.view); r.click(K_UP); check("up -> main view", a.cur.view == 0); r.click(K_UP); check("up -> detail view", a.cur.view == 1); a.cur.view = 0
 # --- 棒球即時: 4 個畫面循環; 精簡/完整資料; 籃球計時器往下推算 ---
 r.msg(k="score", i=0, lg="MLB", st="L", a="NYY", h="BOS", **{"as": 1, "hs": 0}, bt="S. Judge", pt="G. Crochet", ar="90-72", hr="85-77")
 a.cur.sel = 0; a.cur._tell(); r.run(20)
 check("full data kept for selected", "bt" in r.st.scores[0], r.st.scores.get(0))
 check("lite data for others", "q" in r.st.scores[1] and "af" not in r.st.scores[1], r.st.scores.get(1))
 vs = []
-for _ in range(4):
+for _ in range(5):
     r.click(K_UP); vs.append(a.cur.view)
-check("mlb live cycles 4 views", vs == [1, 2, 3, 0], vs)
-r.click(K_DOWN); check("down wraps back to 3", a.cur.view == 3, a.cur.view)
+check("mlb live cycles 5 views", vs == [1, 2, 3, 4, 0], vs)
+r.click(K_DOWN); check("down wraps back to 4", a.cur.view == 4, a.cur.view)
 a.cur.view = 0
 r.msg(k="score", i=1, lg="NBA", st="L", a="LAL", h="GSW", q=2, cs=3000, cr=1); r.run(20)
 a.cur.sel = 1; a.cur._tell(); r.msg(k="score", i=1, lg="NBA", st="L", a="LAL", h="GSW", q=2, cs=3000, cr=1); r.run(20)
@@ -309,5 +309,65 @@ check("free_mem resets min", r.app.mem_min == f or r.app.mem_min <= f)
 r.msg(k="memclean"); r.run(50)
 check("memclean msg ok", True)
 print("memclean tests done")
+
+# ---- 設定檔安全寫入 ----
+import os as _os, tempfile as _tf
+_cwd = _os.getcwd(); _d = _tf.mkdtemp(); _os.chdir(_d)
+try:
+    import state as _stm
+    S = _stm.Settings(); S.set("bright", 33)
+    check("settings saved", _os.path.exists("settings.json") and not _os.path.exists("settings.json.tmp"))
+    S.set("bright", 44)
+    check("settings overwrite ok", _stm.Settings().get("bright") == 44)
+    open("settings.json", "w").write('{"bright": 5')            # 主檔寫壞
+    open("settings.json.tmp", "w").write('{"bright": 77}')      # 暫存檔完整
+    check("recover from tmp", _stm.Settings().get("bright") == 77)
+    open("settings.json.tmp", "w").write('{"bri')               # 兩個都壞 -> 預設值, 不當機
+    check("both corrupt -> defaults", _stm.Settings().get("bright") == _stm.DEFAULTS["bright"])
+finally:
+    _os.chdir(_cwd)
+
+# ---- 手機控制器頁 ----
+r.app.go("pad", clock.now); a = r.app; a.pm.wake(clock.now); r.run(20)
+check("pad page opens", a.cur_id == "pad", a.cur_id)
+r.msg(k="pad", n="瀏覽", i=0, t=2, l=["上滾", "右滾", "下滾", "左滾", "點擊"], g=0b0001); r.run(300)
+check("pad state stored", r.st.pad and r.st.pad[0] == "瀏覽" and r.st.pad[3][4] == "點擊", r.st.pad)
+check("fast: no-double dirs fast, up (has double) not", K_UP not in a.cur.fast and K_DOWN in a.cur.fast and K_LEFT in a.cur.fast and K_RIGHT in a.cur.fast, (a.cur.fast, a.cur._pv, r.st.pad_v, a.cur.rot, r.st.pad))
+r.link.sent.clear()
+r.click(K_DOWN); r.run(10)
+check("down click sent as logical D", {"c": "pad", "d": 2, "e": "c"} in r.link.sent, r.link.sent)
+r.link.sent.clear()
+r.double(K_UP); r.run(10)
+check("up double sent", {"c": "pad", "d": 0, "e": "d"} in r.link.sent, r.link.sent)
+r.link.sent.clear()
+r.click(K_CENTER); r.run(40)
+check("center click sent", {"c": "pad", "d": 4, "e": "c"} in r.link.sent, r.link.sent)
+r.double(K_CENTER); r.run(20)
+check("center double rotates 90", a.cur.rot == 1 and a.cur_id == "pad", a.cur.rot)
+check("fast mask follows rotation", K_RIGHT not in a.cur.fast and K_UP in a.cur.fast, a.cur.fast)
+r.link.sent.clear()
+r.click(K_RIGHT); r.run(10)          # 轉 90° 後, 實體的「右」= 邏輯的「上」
+check("rotated: physical right = logical up", {"c": "pad", "d": 0, "e": "c"} in r.link.sent, r.link.sent)
+r.link.sent.clear()
+r.hold(K_DOWN, 1000); r.run(10)
+es = [m.get("e") for m in r.link.sent if isinstance(m, dict) and m.get("c") == "pad"]
+check("hold sends l then repeated h", "l" in es and es.count("h") >= 1 and all(m.get("d") == 1 for m in r.link.sent if isinstance(m, dict) and m.get("c") == "pad"), es)
+r.triple(K_CENTER); r.run(20)
+check("center triple -> home", a.cur_id == "home", a.cur_id)
+a.cur.rot = 0 if hasattr(a.cur, "rot") else 0
+r.st.cfg.set("padrot", 0)
+
+# ---- 標題列更新秒數: 一定要顯示 (即使標題很長、圖示很多) ----
+import ui as _ui
+r.app.go("score", clock.now); a.cur.sel = 0
+r.msg(k="score", i=0, lg="MLB", st="L", a="NYY", h="BOS", **{"as": 1, "hs": 0}); r.run(30)
+r.st.sw_run = True; r.st.msgs = [(1, "x", "y", 0, 0, 1)]
+a.cur.view = 4
+r.run(10)
+tg = a.cur.get_tag()
+check("age tag present while live", tg.startswith("("), tg)
+r.msg(k="score", i=0, lg="MLB", st="F", a="NYY", h="BOS", **{"as": 1, "hs": 0}); r.run(30)
+check("age tag present when final", a.cur.get_tag().startswith("("), a.cur.get_tag())
+r.st.sw_run = False; r.st.msgs = []
 
 print("\n%d failures" % len(fails)); sys.exit(1 if fails else 0)

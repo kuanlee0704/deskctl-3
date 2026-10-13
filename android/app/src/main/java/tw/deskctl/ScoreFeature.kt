@@ -18,6 +18,8 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
     private var running = false
     private var anyLive = false
     private var selNbaLive = false
+    private var selMlbLive = false
+    private var fails = 0             // 連續抓取失敗次數 (用來拉長間隔, 避免沒網路/被限流時狂打)
     private var seenVer = -1
     private var stopped = false
     private var sel = 0               // 控制器正在看的欄位
@@ -46,7 +48,8 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
 
     override fun onTick(n: Int) {
         if (seenVer != ScoreStore.version) pushGames()
-        val iv = if (boardOn) (if (selNbaLive) 4000L else 8000L) else if (anyLive) 30000L else 180000L
+        var iv = if (boardOn) (if (selNbaLive) 4000L else if (selMlbLive) 5000L else 8000L) else if (anyLive) 30000L else 180000L
+        if (fails > 0) iv *= (1 + minOf(fails, 6))
         if (SystemClock.elapsedRealtime() - lastPoll >= iv) poll()
     }
 
@@ -100,12 +103,15 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
                 val force = forceSel
                 forceSel = false
                 selNbaLive = false
+                selMlbLive = false
+                if (res.isEmpty()) fails++ else fails = 0
                 for ((i0, o0) in res) {
                     val i = i0
                     // 中文隊名在手機端組好 (tn); 非選取中的欄位只送精簡欄位, 減輕控制器記憶體負擔
                     val o = if (boardOn && i == sel) o0 else liteOf(o0)
                     if (force && i == sel) host.send(o) else host.sendIfChanged("score$i", o)
                     if (i == sel && o.optString("lg") == "NBA" && o.optString("st") == "L") selNbaLive = true
+                    if (i == sel && o.optString("lg") == "MLB" && o.optString("st") == "L") selMlbLive = true
                     if (o.optString("st") == "L") live = true
                     sum[i] = describe(o)
                 }

@@ -79,6 +79,12 @@ object Prefs {
     fun setScoreTracked(c: Context, v: String) { sp(c).edit().putString("score_tracked", v).apply() }
 
     /** 捷徑清單 (JSON 字串, 格式見 Shortcuts.kt) */
+    /** 手機控制器的模式 (JSON 陣列) 與目前使用第幾組 */
+    fun padProfiles(c: Context): String = sp(c).getString("pad_profiles", "") ?: ""
+    fun setPadProfiles(c: Context, v: String) { sp(c).edit().putString("pad_profiles", v).apply() }
+    fun padActive(c: Context): Int = sp(c).getInt("pad_active", 0)
+    fun setPadActive(c: Context, v: Int) { sp(c).edit().putInt("pad_active", v).apply() }
+
     fun shortcuts(c: Context): String = sp(c).getString("shortcuts", "[]") ?: "[]"
     fun setShortcuts(c: Context, v: String) { sp(c).edit().putString("shortcuts", v).apply() }
 }

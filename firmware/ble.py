@@ -130,12 +130,14 @@ class Link:
         if buf.find(b"\n") < 0:
             return ()
         out = []
-        while True:                         # 就地切出每一行, 不複製整個緩衝區 (省記憶體)
-            i = buf.find(b"\n")
+        mv = memoryview(buf)
+        st = 0
+        while True:                         # 就地切出每一行 (MicroPython 的 bytearray 不能 del 切片, 所以用位移)
+            i = buf.find(b"\n", st)
             if i < 0:
                 break
-            p = bytes(buf[:i])
-            del buf[:i + 1]
+            p = bytes(mv[st:i])
+            st = i + 1
             if not p:
                 continue
             try:
@@ -146,6 +148,8 @@ class Link:
             self.ever_rx = True
             self.seen = True
             out.append(m)
+        mv = None
+        self._rxbuf = bytearray(buf[st:]) if st < len(buf) else bytearray()
         return out
 
     # ---- 送 ----

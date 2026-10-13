@@ -11,6 +11,7 @@ object Features {
         FeatureEntry("battery", "手機電量") { h -> BatteryFeature(h) },
         FeatureEntry("media", "音樂控制") { h -> MediaFeature(h) },
         FeatureEntry("shortcut", "捷徑") { h -> ShortcutFeature(h) },
+        FeatureEntry("pad", "手機控制") { h -> PadFeature(h) },
         FeatureEntry("score", "比分板") { h -> ScoreFeature(h) },
         FeatureEntry("message", "手機訊息") { h -> MessageFeature(h) },
         FeatureEntry("clean", "手機清理") { h -> CleanFeature(h) },

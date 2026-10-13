@@ -4,11 +4,21 @@ from p_scoret import teams, pre_final, foot
 
 
 def draw(p, c, sc, v, g):
+    if v < 2 or sc.get("st") == "P":
+        p._subdrop()
     if v == 0 or sc.get("st") == "P":
         main(p, c, sc)
         foot(p, c, sc, g)
-    else:
+    elif v == 1:
         detail(p, c, sc)
+    else:
+        m = p._sub("p_scoresk")                 # 2 投籃等數據  3 助攻等數據  4 球員與最近得分
+        if m is None:
+            c.text("記憶體不足, 稍後重試", 6, 30, WARN)
+        elif v == 4:
+            m.leaders(p, c, sc)
+        else:
+            m.stats(p, c, sc, v - 2)
 
 
 def ctext(r):
@@ -17,20 +27,26 @@ def ctext(r):
 
 
 def main(p, c, sc):
-    p.lx, p.rx = 82, 90
+    p.lx, p.rx = 70, 90                 # 比分往左靠, 右邊留出 +2/+3 的空間; 分隔線仍在 85
     R = p.rx
     a, h = sc.get("a", "?"), sc.get("h", "?")
     live = sc.get("st") == "L"
     sub = None
     if live or sc.get("st") == "F":
         sub = ("F%d T%d" % (sc.get("af", 0), sc.get("at", 0)), "F%d T%d" % (sc.get("hf2", 0), sc.get("ht", 0)))
-    teams(p, c, sc, a, h, sc.get("as", 0), sc.get("hs", 0), -1, live, sub)
+    ks = sc.get("ks") if live else None
+    kt = sc.get("kt", 0)
+    teams(p, c, sc, a, h, sc.get("as", 0), sc.get("hs", 0), kt if ks else -1, live, sub, 85, (ACC, WARN))
+    if ks:                                        # 最近一次得分: 得分隊那一列的比分旁邊標 +N, 客隊藍 / 主隊黃
+        c.text("+%d" % ks, p.lx + 3, 21 + kt * 27, ACC if kt == 0 else WARN)
     if pre_final(p, c, sc):
         return
     q = sc.get("q", 1)
     if sc.get("st") == "F":
         c.text("第%d節" % q if q <= 4 else "加時賽", R, 30, FG)
         c.text("犯規 %d:%d" % (sc.get("af", 0), sc.get("hf2", 0)), R, 44, DIM)
+        if sc.get("tm"):
+            c.text(sc["tm"], R, 58, FAINT)
         return
     r = p.clk(sc, p._now)
     if sc.get("brk"):
