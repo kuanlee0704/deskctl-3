@@ -34,8 +34,15 @@ def main(p, c, sc):
     sub = None
     if live or sc.get("st") == "F":
         sub = ("F%d T%d" % (sc.get("af", 0), sc.get("at", 0)), "F%d T%d" % (sc.get("hf2", 0), sc.get("ht", 0)))
-    ks = sc.get("ks") if live else None
-    kt = sc.get("kt", 0)
+    ks = kt = None
+    if live:                                      # 手機給的最近得分; 沒有就用板子自己比對前後比分得到的
+        ks = sc.get("ks")
+        kt = sc.get("kt", 0)
+        if not ks:
+            kk = p.st.kk.get(p.sel)
+            if kk:
+                kt, ks = kk
+    kt = kt or 0
     teams(p, c, sc, a, h, sc.get("as", 0), sc.get("hs", 0), kt if ks else -1, live, sub, 85, (ACC, WARN))
     if ks:                                        # 最近一次得分: 得分隊那一列的比分旁邊標 +N, 客隊藍 / 主隊黃
         c.text("+%d" % ks, p.lx + 3, 21 + kt * 27, ACC if kt == 0 else WARN)
@@ -49,7 +56,12 @@ def main(p, c, sc):
             c.text(sc["tm"], R, 58, FAINT)
         return
     r = p.clk(sc, p._now)
-    if sc.get("brk"):
+    bl = p.buf_left(sc, p._now) if sc.get("bf") else 0
+    if bl:                                   # 延遲播放剛開始: 先顯示目前比分, 計時器緩衝中
+        c.text(("第%d節" % q) if q <= 4 else ("加時%d" % (q - 4)), R, 14, ACC)
+        c.text_big("%d" % bl, R, 28, FAINT, 2, 0)
+        c.text("緩衝中", R + 28, 32, WARN)
+    elif sc.get("brk"):
         c.text(("END of %d" % q) if q <= 4 else ("END OT%d" % (q - 4)), R, 14, WARN)
         c.text_big("0:00", R, 28, FAINT, 2, 0)
     else:

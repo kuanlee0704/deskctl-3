@@ -147,6 +147,20 @@ class ScorePage(private val act: Activity) {
         val sub = tv(col, "選擇要追蹤的比賽, 資料由手機抓取後傳給控制器。控制器上左右鍵切換比賽、上下鍵切換主畫面/細節。", 13f, cSub)
         sub.setPadding(0, 0, 0, dp(12))
 
+        // ----- 籃球延遲播放 -----
+        val dc = card()
+        tv(dc, "籃球延遲播放", 16f, cText, true)
+        tv(dc, "把控制器上正在看的籃球比賽延後播出, 期間先收幾筆資料, 計時器用前後兩筆真實數據插值, 不必預測未來, 就不會算錯又更正。代價是畫面晚於實況。", 12f, cSub)
+        val dly = Prefs.nbaDelay(act)
+        btn(dc, "延遲: " + (if (dly == 0) "關閉 (即時, 用推算)" else "$dly 秒") + "  (點此更改)") {
+            val opts = arrayOf("關閉 (即時, 用推算)", "10 秒", "15 秒", "20 秒", "30 秒")
+            val vals = intArrayOf(0, 10, 15, 20, 30)
+            android.app.AlertDialog.Builder(act).setTitle("籃球延遲播放").setItems(opts) { _, i ->
+                Prefs.setNbaDelay(act, vals[i])
+                render()
+            }.setNegativeButton("取消", null).show()
+        }
+
         // ----- 追蹤清單 -----
         val tc = card()
         tv(tc, "追蹤中 (" + tracked.size + "/" + ScoreStore.MAX + ")", 16f, cText, true)

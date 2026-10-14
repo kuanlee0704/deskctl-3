@@ -37,9 +37,14 @@ def leaders(p, c, sc):
             c.hline(2, 39, 156, FAINT)
     c.hline(2, 65, 156, FAINT)
     ks = sc.get("ks")
+    kt = sc.get("kt", 0)
+    if not ks:                                   # 手機沒給時, 用板子自己比對前後比分得到的
+        kk = p.st.kk.get(p.sel)
+        if kk:
+            kt, ks = kk
     if ks:
-        col = ACC if sc.get("kt") == 0 else WARN
+        col = ACC if kt == 0 else WARN
         c.text("+%d" % ks, 2, 67, col)
-        p._txt(c, "kn", (sc.get("a") if sc.get("kt") == 0 else sc.get("h")) + " " + (sc.get("kn") or ""), 24, 67, 134, col)
+        p._txt(c, "kn", (sc.get("a") if kt == 0 else sc.get("h")) + " " + (sc.get("kn") or ""), 24, 67, 134, col)
     else:
         c.text("分/板/助", 2, 67, FAINT)

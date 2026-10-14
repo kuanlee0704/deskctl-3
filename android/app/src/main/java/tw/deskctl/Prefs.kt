@@ -31,6 +31,10 @@ object Prefs {
     fun wakeLock(c: Context): Boolean = sp(c).getBoolean("wake_lock", true)
     fun setWakeLock(c: Context, v: Boolean) { sp(c).edit().putBoolean("wake_lock", v).apply() }
 
+    /** 籃球延遲播放秒數 (0 = 關閉, 即時顯示並用推算補中間); 延遲期間收集幾筆資料, 用已知的前後兩筆插值, 不必猜未來 */
+    fun nbaDelay(c: Context): Int = sp(c).getInt("nba_delay", 15)
+    fun setNbaDelay(c: Context, v: Int) { sp(c).edit().putInt("nba_delay", v).apply() }
+
     /** 找不到控制器時, 每輪只搜尋約 1 分鐘, 之後休息 10 分鐘再試 (省電), 預設開啟; 連上就一直保持連線 */
     fun autoPause(c: Context): Boolean = sp(c).getBoolean("auto_pause", true)
     fun setAutoPause(c: Context, v: Boolean) { sp(c).edit().putBoolean("auto_pause", v).apply() }

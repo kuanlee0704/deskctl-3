@@ -357,6 +357,9 @@ for kt_, ks_ in ((0, 2), (1, 3), (0, 1)):
     for v in (0, 4): r.app.cur.view = v; snap(r, "nba lastscore kt=%d v=%d" % (kt_, v))
 r.msg(**dict(bk, ks=None, ta=None, la=[], lh=[])); r.run(50)
 for v in (2, 4): r.app.cur.view = v; snap(r, "nba no extra v=%d" % v)
+# ---------- 籃球 延遲播放 緩衝畫面 ----------
+r.msg(**dict(bk, bf=15, dl=15, cs=7200, cr=0)); r.run(50); r.app.cur.sel = 1; r.app.cur.view = 0; snap(r, "nba buffering")
+r.msg(**dict(bk, bf=None, dl=15, cs=3000, cn=2600, cd=4000, cr=0)); r.run(50); snap(r, "nba delayed play")
 r.msg(**dict(bk, hb=1, ab=1, **{"as": 100, "hs": 100})); r.run(50); r.app.cur.view = 1; snap(r, "nba both bonus")
 r.msg(**dict(k="score", i=2, lg="CPBL", st="L", a="樂天", h="統一", **{"as": 2, "hs": 1}, **{"in": 5, "hf": 0, "b": 1, "s": 1, "o": 1, "bs": 3, "ah": 4, "hh": 3, "ae": 0, "he": 0})); r.run(50)
 r.app.cur.sel = 2

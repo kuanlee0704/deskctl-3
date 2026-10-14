@@ -38,6 +38,7 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
 
     override fun stop() {
         stopped = true
+        clearQueue()
     }
 
     override fun onReady() {
@@ -56,8 +57,11 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
     override fun onCommand(c: String, o: JSONObject): Boolean {
         if (c != "sc") return false
         boardOn = o.optInt("on") == 1
+        if (!boardOn) clearQueue()
         if (boardOn) {
-            sel = o.optInt("sel", 0)
+            val ns = o.optInt("sel", 0)
+            if (ns != sel) clearQueue()
+            sel = ns
             forceSel = true
             if (running) rerun = true else poll()
         }
@@ -105,11 +109,20 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
                 selNbaLive = false
                 selMlbLive = false
                 if (res.isEmpty()) fails++ else fails = 0
+                val delayMs = if (boardOn) Prefs.nbaDelay(host.context) * 1000L else 0L
+                val delayed = HashSet<Int>()
                 for ((i0, o0) in res) {
                     val i = i0
                     // 中文隊名在手機端組好 (tn); 非選取中的欄位只送精簡欄位, 減輕控制器記憶體負擔
                     val o = if (boardOn && i == sel) o0 else liteOf(o0)
-                    if (force && i == sel) host.send(o) else host.sendIfChanged("score$i", o)
+                    val nbaSel = boardOn && i == sel && o0.optString("lg") == "NBA"
+                    if (nbaSel && delayMs > 0 && (o0.optString("st") == "L" || (playing && qSlot == i))) {
+                        enqueue(i, o0, delayMs)        // 延遲播放: 先收進佇列, 時間到才送給控制器
+                        delayed.add(i)
+                    } else {
+                        if (i == qSlot) clearQueue()
+                        if (force && i == sel) host.send(o) else host.sendIfChanged("score$i", o)
+                    }
                     if (i == sel && o.optString("lg") == "NBA" && o.optString("st") == "L") selNbaLive = true
                     if (i == sel && o.optString("lg") == "MLB" && o.optString("st") == "L") selMlbLive = true
                     if (o.optString("st") == "L") live = true
@@ -117,7 +130,7 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
                 }
                 // 這幾場剛確認過資料 (沒變動也算): 控制器用來顯示「距離上次更新」
                 val ok = JSONArray()
-                for (i in res.keys) ok.put(i)
+                for (i in res.keys) if (i !in delayed) ok.put(i)
                 if (ok.length() > 0) host.send(JSONObject().put("k", "scok").put("l", ok))
                 anyLive = live
                 summary = sum
@@ -138,6 +151,55 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
         } else {
             (o.optString("tx").ifEmpty { o.optInt("in").toString() + "局" }) + "  " + o.optInt("as") + ":" + o.optInt("hs")
         }
+    }
+
+    // ---------------- 延遲播放 (籃球, 控制器正在看的那場) ----------------
+    private class Snap(val recv: Long, val due: Long, val o: JSONObject)
+
+    private val queue = ArrayList<Snap>()
+    private var qSlot = -1
+    private var playing = false
+    private val flushRun = Runnable { flush() }
+
+    private fun clearQueue() {
+        queue.clear()
+        playing = false
+        qSlot = -1
+        host.handler.removeCallbacks(flushRun)
+    }
+
+    private fun enqueue(i: Int, o: JSONObject, delayMs: Long) {
+        val now = SystemClock.elapsedRealtime()
+        if (qSlot != i) {
+            clearQueue()
+            qSlot = i
+        }
+        val sec = (delayMs / 1000).toInt()
+        if (!playing) {
+            // 第一筆立刻顯示 (標示「緩衝中」), 之後的資料都延遲 delayMs 才播出, 這段時間足夠收到好幾筆
+            playing = true
+            val first = JSONObject(o.toString())
+            first.put("bf", sec).put("dl", sec).put("cr", 0)
+            host.send(first)
+            return
+        }
+        queue.add(Snap(now, now + delayMs, JSONObject(o.toString())))
+        host.handler.postDelayed(flushRun, delayMs)
+    }
+
+    /** 到時間的那一筆送出; 計時器附上「下一筆已知的剩餘時間 (cn) 與相隔毫秒 (cd)」, 控制器在兩筆之間插值 */
+    private fun flush() {
+        val now = SystemClock.elapsedRealtime()
+        var cur: Snap? = null
+        while (queue.isNotEmpty() && queue[0].due <= now + 60L) cur = queue.removeAt(0)
+        val c = cur ?: return
+        val o = c.o
+        o.put("dl", ((c.due - c.recv) / 1000).toInt()).put("cr", 0)
+        val next = queue.firstOrNull()
+        if (next != null && next.o.has("cs")) {
+            o.put("cn", next.o.optInt("cs")).put("cd", (next.recv - c.recv).toInt())
+        }
+        host.send(o)
     }
 
     private val LITE = listOf("lg", "st", "a", "h", "as", "hs", "in", "hf", "tx", "mid", "tm", "q", "c", "brk", "tn")

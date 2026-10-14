@@ -132,6 +132,9 @@ class ScorePage(Page):
         a = self._age_s()
         if a < 0:
             return ""
+        sc = self._sc()
+        if sc and sc.get("dl"):                 # 延遲播放中: 顯示的是 (收到資料的秒數 + 延遲秒數) 之前的實況
+            a += sc["dl"]
         return "(:%02d)" % a if a < 60 else ("(%02d:)" % (a // 60) if a < 6000 else "(--)")
 
     def get_title(self):
@@ -157,10 +160,28 @@ class ScorePage(Page):
         cs = sc.get("cs")
         if cs is None:
             return -1
+        if sc.get("dl") is not None:
+            # 延遲播放: 手機把畫面延後, 並告訴我們下一筆真實資料的時間 (cn) 與相隔毫秒 (cd);
+            # 這裡只在兩筆已知資料之間線性插值, 不猜未來; 下一筆還沒到就停在目前值
+            cn = sc.get("cn")
+            cd = sc.get("cd") or 0
+            if cn is None or cn >= cs or cd <= 0:
+                return cs
+            e = time.ticks_diff(now, self.st.clk_t.get(self.sel, now))
+            if e >= cd:
+                return cn
+            return cs - (cs - cn) * e // cd
         d = 0
         if sc.get("cr"):
             d = min(time.ticks_diff(now, self.st.clk_t.get(self.sel, now)), 20000) // 100
         return cs - d if cs > d else 0
+
+    def buf_left(self, sc, now):
+        """延遲播放剛開始, 還要緩衝幾秒 (0 = 緩衝完成)"""
+        t = self.st.score_t.get(self.sel)
+        if t is None:
+            return 0
+        return max(0, sc.get("bf", 0) - time.ticks_diff(now, t) // 1000)
 
     def tick(self, now):
         self._now = now
@@ -170,7 +191,12 @@ class ScorePage(Page):
             self._age = a
             d = True
         sc = self._sc()
-        if sc and sc.get("st") == "L" and "cs" in sc and not sc.get("brk"):
+        if sc and sc.get("bf"):                              # 緩衝倒數 (每秒重畫)
+            k = self.buf_left(sc, now) + 20000
+            if k != self._clk:
+                self._clk = k
+                d = True
+        elif sc and sc.get("st") == "L" and "cs" in sc and not sc.get("brk"):
             r = self.clk(sc, now)
             k = r // 10 if r >= 600 else r + 10000        # 一分鐘以上每秒更新, 最後一分鐘每 0.1 秒
             if k != self._clk:

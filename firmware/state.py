@@ -126,6 +126,7 @@ class State:
         self.acts = []
         self.pad = None          # 手機控制器: (模式名, 第幾組, 共幾組, [上 右 下 左 中央 的功能名], 有設兩下手勢的方向位元)
         self.pad_v = 0
+        self.kk = {}             # 籃球: 板子自己比對前後比分得到的「最近得分」 {欄位: (隊0客1主, 分數)}, 手機沒給時備用
         self.layout_changed = False
         self.sys = {}            # 手機系統狀態 (電量/網路/記憶體…)
         self.sys_t = 0
@@ -145,6 +146,8 @@ class State:
 
     def set_sel(self, i):
         """比分頁: 設定正在看的比賽; 其他比賽的資料縮成精簡版"""
+        if i != self.sc_sel:
+            self.kk = {}
         self.sc_sel = i
         for j in list(self.scores):
             if j != i:
@@ -279,6 +282,12 @@ class State:
         elif k == "score":
             i = m.get("i", -1)
             if 0 <= i < 8:
+                old = self.scores.get(i)
+                if i == self.sc_sel and old and m.get("lg") == "NBA" and "as" in old and "as" in m and "hs" in m:
+                    da = m["as"] - old.get("as", 0)
+                    dh = m["hs"] - old.get("hs", 0)
+                    if da > 0 or dh > 0:
+                        self.kk[i] = (0 if da > dh else 1, max(da, dh))
                 if i != self.sc_sel:                            # 沒在看的比賽只留精簡欄位, 省記憶體
                     m = lite(m)
                 self.scores[i] = m

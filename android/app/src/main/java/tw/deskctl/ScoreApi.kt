@@ -727,10 +727,17 @@ object ScoreApi {
         } catch (e: Exception) {
             AppLog.w("SCORE", "NBA 逐球紀錄解析失敗: $e")
         }
+        nbaLastFinish(t, o, team, pts, who)
+    }
+
+    /** 收尾: 逐球紀錄沒抓到時用兩次比分的差推算; 都沒有就沿用上一次 (一直顯示到下一次得分) */
+    private fun nbaLastFinish(t: Tracked, o: JSONObject, team0: Int, pts0: Int, who: String) {
+        var team = team0
+        var pts = pts0
         val a = o.optInt("as")
         val h = o.optInt("hs")
         val prev = nbaLast[t.id]
-        if (team < 0 && prev != null) {                    // 退而求其次: 和上次比分比較
+        if (team < 0 && prev != null) {
             val da = a - prev.first
             val dh = h - prev.second
             if (da > 0 || dh > 0) { team = if (da > dh) 0 else 1; pts = maxOf(da, dh) }
@@ -751,12 +758,12 @@ object ScoreApi {
     }
 
     private fun fetchNba(t: Tracked, full: Boolean = false): JSONObject? {
-        if (t.src == "espn") return fetchEspnNba(t)
+        if (t.src == "espn") return fetchEspnNba(t, full)
         val now = System.currentTimeMillis()
         val txt = http("https://cdn.nba.com/static/json/liveData/boxscore/boxscore_${t.id}.json", null, nbaHeaders)
         if (txt == null) {
             // 還沒開賽時沒有 boxscore (404): 顯示開賽時間; 已過開賽時間很久仍抓不到才算失敗
-            return if (now < t.startMs) base(t, "P") else fetchEspnNba(t)
+            return if (now < t.startMs) base(t, "P") else fetchEspnNba(t, full)
         }
         try {
             val g = JSONObject(txt).getJSONObject("game")
@@ -789,7 +796,7 @@ object ScoreApi {
             return o
         } catch (e: Exception) {
             AppLog.w("SCORE", "NBA boxscore 解析失敗: $e")
-            return fetchEspnNba(t)
+            return fetchEspnNba(t, full)
         }
     }
 
@@ -810,7 +817,7 @@ object ScoreApi {
         return null
     }
 
-    private fun fetchEspnNba(t: Tracked): JSONObject? {
+    private fun fetchEspnNba(t: Tracked, full: Boolean = false): JSONObject? {
         val ev = findEspn(t)
         if (ev == null) {
             AppLog.w("SCORE", "ESPN 找不到 " + t.a + "@" + t.h)
@@ -838,7 +845,33 @@ object ScoreApi {
             return r
         }
         o.put("aq", ls(a)).put("hq", ls(h))
+        if (full && st == "L") {
+            val r = espnLast(ev.optString("id"))
+            nbaLastFinish(t, o, r?.first ?: -1, r?.second ?: 0, r?.third ?: "")
+        }
         return o
+    }
+
+    /** ESPN 逐球紀錄: 最近一次得分 (哪隊, 幾分, 說明); 抓不到回傳 null */
+    private fun espnLast(evId: String): Triple<Int, Int, String>? {
+        if (evId.isEmpty()) return null
+        val txt = http("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=$evId") ?: return null
+        try {
+            val plays = JSONObject(txt).optJSONArray("plays") ?: return null
+            for (i in plays.length() - 1 downTo 1) {
+                val x = plays.getJSONObject(i)
+                if (!x.optBoolean("scoringPlay")) continue
+                val p = plays.getJSONObject(i - 1)
+                val da = x.optInt("awayScore") - p.optInt("awayScore")
+                val dh = x.optInt("homeScore") - p.optInt("homeScore")
+                if (da <= 0 && dh <= 0) continue
+                val who = x.optString("shortDescription").ifEmpty { x.optString("text") }.take(30)
+                return Triple(if (da > dh) 0 else 1, maxOf(da, dh), who)
+            }
+        } catch (e: Exception) {
+            AppLog.w("SCORE", "ESPN 逐球紀錄解析失敗: $e")
+        }
+        return null
     }
 
     // ================= CPBL (盡力而為) =================
