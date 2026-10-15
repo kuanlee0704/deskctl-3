@@ -134,6 +134,7 @@ class State:
         self.games = []          # 比分板: 手機設定追蹤的比賽 [(聯盟, 客隊, 主隊), ...] (順序 = 欄位編號)
         self.sc_sel = -1         # 控制器正在看的比賽欄位 (-1 = 沒在比分頁)
         self.clk_t = {}          # 欄位編號 -> 收到計時資料的時間 (籃球計時器往下推算用)
+        self.buf_t = {}          # 欄位編號 -> 開始緩衝的時間
         self.score_t = {}        # 欄位編號 -> 最近一次更新的時間 (ms)
         self.scores = {}         # 欄位編號 -> 手機最新傳來的比分資料 (dict)
         self.msg_ev = None       # 新訊息 (App, 標題) , App 會轉成提示並喚醒螢幕
@@ -294,6 +295,8 @@ class State:
                 self.score_t[i] = now
                 if "cs" in m:
                     self.clk_t[i] = now
+                if m.get("bf"):
+                    self.buf_t[i] = now
                 if i == self.sc_sel and len(m) > 12:             # 完整資料剛解析完, 馬上整理掉解析產生的垃圾
                     gc.collect()
         elif k == "scok":                                       # 手機剛確認過這幾場的資料 (沒變動也算更新)

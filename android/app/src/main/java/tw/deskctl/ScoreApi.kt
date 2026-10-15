@@ -845,19 +845,33 @@ object ScoreApi {
             return r
         }
         o.put("aq", ls(a)).put("hq", ls(h))
-        if (full && st == "L") {
-            val r = espnLast(ev.optString("id"))
-            nbaLastFinish(t, o, r?.first ?: -1, r?.second ?: 0, r?.third ?: "")
+        if (full) {
+            val sum = espnSummary(ev.optString("id"))
+            espnExtra(sum, a?.optJSONObject("team")?.optString("id") ?: "", o)
+            if (st == "L") {
+                val r = espnLast(sum)
+                nbaLastFinish(t, o, r?.first ?: -1, r?.second ?: 0, r?.third ?: "")
+            }
         }
         return o
     }
 
-    /** ESPN 逐球紀錄: 最近一次得分 (哪隊, 幾分, 說明); 抓不到回傳 null */
-    private fun espnLast(evId: String): Triple<Int, Int, String>? {
+    /** ESPN 單場摘要 (一次請求同時取得逐球紀錄與 boxscore) */
+    private fun espnSummary(evId: String): JSONObject? {
         if (evId.isEmpty()) return null
         val txt = http("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=$evId") ?: return null
+        return try {
+            JSONObject(txt)
+        } catch (e: Exception) {
+            AppLog.w("SCORE", "ESPN 摘要解析失敗: $e")
+            null
+        }
+    }
+
+    /** ESPN 逐球紀錄: 最近一次得分 (哪隊, 幾分, 說明); 抓不到回傳 null */
+    private fun espnLast(sum: JSONObject?): Triple<Int, Int, String>? {
         try {
-            val plays = JSONObject(txt).optJSONArray("plays") ?: return null
+            val plays = sum?.optJSONArray("plays") ?: return null
             for (i in plays.length() - 1 downTo 1) {
                 val x = plays.getJSONObject(i)
                 if (!x.optBoolean("scoringPlay")) continue
@@ -872,6 +886,74 @@ object ScoreApi {
             AppLog.w("SCORE", "ESPN 逐球紀錄解析失敗: $e")
         }
         return null
+    }
+
+    /** ESPN boxscore 轉成和 NBA 官方一樣的 ta/th (球隊數據) 與 la/lh (得分前兩名), 讓球隊數據頁與球員頁也有資料 */
+    private fun espnExtra(sum: JSONObject?, awayId: String, o: JSONObject) {
+        try {
+            val box = sum?.optJSONObject("boxscore") ?: return
+            fun num(v: String): Int = Math.round(v.replace("%", "").trim().toDoubleOrNull() ?: 0.0).toInt()
+            fun ts(team: JSONObject?): JSONArray {
+                val m = HashMap<String, String>()
+                val arr = team?.optJSONArray("statistics")
+                if (arr != null) for (i in 0 until arr.length()) {
+                    val e = arr.optJSONObject(i) ?: continue
+                    m[e.optString("name")] = e.optString("displayValue")
+                }
+                fun g(vararg k: String): Int {
+                    for (x in k) m[x]?.let { return num(it) }
+                    return 0
+                }
+                return JSONArray().put(g("fieldGoalPct")).put(g("threePointFieldGoalPct")).put(g("freeThrowPct"))
+                    .put(g("totalRebounds", "rebounds")).put(g("assists")).put(g("turnovers", "totalTurnovers"))
+                    .put(g("pointsInPaint")).put(g("fastBreakPoints"))
+            }
+            fun leaders(pl: JSONObject?): JSONArray {
+                val out = JSONArray()
+                val grp = pl?.optJSONArray("statistics")?.optJSONObject(0) ?: return out
+                val labels = grp.optJSONArray("labels") ?: return out
+                fun idx(n: String): Int {
+                    for (i in 0 until labels.length()) if (labels.optString(i) == n) return i
+                    return -1
+                }
+                val ip = idx("PTS")
+                val ir = idx("REB")
+                val ia = idx("AST")
+                if (ip < 0) return out
+                val ath = grp.optJSONArray("athletes") ?: return out
+                val rows = ArrayList<Triple<String, IntArray, Int>>()
+                for (i in 0 until ath.length()) {
+                    val x = ath.optJSONObject(i) ?: continue
+                    val st = x.optJSONArray("stats") ?: continue
+                    if (st.length() <= ip) continue
+                    val a = x.optJSONObject("athlete")
+                    val nm = lastName(a?.optString("displayName").orEmpty().ifEmpty { a?.optString("shortName").orEmpty() })
+                    val v = intArrayOf(num(st.optString(ip)), if (ir >= 0) num(st.optString(ir)) else 0, if (ia >= 0) num(st.optString(ia)) else 0)
+                    rows.add(Triple(nm, v, v[0]))
+                }
+                rows.sortByDescending { it.third }
+                for (r in rows.take(2)) out.put(JSONArray().put(r.first).put(r.second[0]).put(r.second[1]).put(r.second[2]))
+                return out
+            }
+            val teams = box.optJSONArray("teams")
+            val players = box.optJSONArray("players")
+            var ta: JSONObject? = null
+            var th: JSONObject? = null
+            if (teams != null) for (i in 0 until teams.length()) {
+                val t = teams.optJSONObject(i) ?: continue
+                if (t.optJSONObject("team")?.optString("id") == awayId) ta = t else th = t
+            }
+            var pa: JSONObject? = null
+            var ph: JSONObject? = null
+            if (players != null) for (i in 0 until players.length()) {
+                val p = players.optJSONObject(i) ?: continue
+                if (p.optJSONObject("team")?.optString("id") == awayId) pa = p else ph = p
+            }
+            if (ta == null || th == null) return
+            o.put("ta", ts(ta)).put("th", ts(th)).put("la", leaders(pa)).put("lh", leaders(ph))
+        } catch (e: Exception) {
+            AppLog.w("SCORE", "ESPN boxscore 解析失敗: $e")
+        }
     }
 
     // ================= CPBL (盡力而為) =================

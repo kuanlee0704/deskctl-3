@@ -52,12 +52,27 @@ def boot():
     return app, lcd, c
 
 
-def show_error(lcd, c, e):
+def log_error(msg, app=None):
+    """把最後一次致命錯誤寫進 err.log (Thonny 可以直接看), 只保留一筆"""
+    try:
+        import gc
+        with open("err.log", "w") as f:
+            f.write(msg[-400:] + "\nfree=%d page=%s\n" % (gc.mem_free(), getattr(app, "cur_id", "?")))
+    except Exception:
+        pass
+
+
+def show_error(lcd, c, e, app=None):
     try:
         import io
         buf = io.StringIO()
         sys.print_exception(e, buf)
-        msg = buf.getvalue().replace("\n", " ")[-150:]
+        full = buf.getvalue()
+        log_error(full, app)
+        if isinstance(e, MemoryError):
+            msg = "記憶體不足, 自動重新啟動中"
+        else:
+            msg = full.replace("\n", " ")[-150:]
     except Exception:
         msg = repr(e)
     c.fill(1)
@@ -89,23 +104,35 @@ def run():
         while True:
             try:
                 app.step(time.ticks_ms())
-            except MemoryError:
-                # 記憶體不足: 先整理再繼續; 10 秒內連續 8 次才重啟
-                gc.collect()
+            except MemoryError as e:
+                # 記憶體不足: 逐級自救, 不重開機。30 秒內第 1 次 整理+卸載其他頁面, 第 2 次 丟掉這頁的暫存,
+                # 第 3 次 回首頁, 第 6 次以上都救不回來才重啟 (並把原因寫進 err.log)
                 now = time.ticks_ms()
                 mem_errs.append(now)
-                while mem_errs and time.ticks_diff(now, mem_errs[0]) > 10000:
+                while mem_errs and time.ticks_diff(now, mem_errs[0]) > 30000:
                     mem_errs.pop(0)
-                print("MemoryError", gc.mem_free())
-                if len(mem_errs) >= 8:
+                n = len(mem_errs)
+                if n >= 6:
                     raise
+                try:
+                    if n > 1:
+                        raise ValueError
+                    import io
+                    b = io.StringIO()
+                    sys.print_exception(e, b)
+                    log_error(b.getvalue(), app)
+                except Exception:
+                    pass
+                f = app.recover(min(n, 3))
+                print("MemoryError #%d free=%d" % (n, f))
+                time.sleep_ms(80)
             app.pm.nap()
     except KeyboardInterrupt:
         raise
     except Exception as e:
         sys.print_exception(e)
         if lcd is not None:
-            show_error(lcd, c, e)
+            show_error(lcd, c, e, app)
         time.sleep(3)
         machine.reset()
 

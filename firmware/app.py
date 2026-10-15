@@ -39,6 +39,10 @@ class Page:
     def on_reset(self, now):
         pass
 
+    def trim(self):
+        """記憶體吃緊時: 丟掉可以重建的東西 (子模組、暫存)"""
+        pass
+
     def tick(self, now):
         d = self.dirty
         self.dirty = False
@@ -199,6 +203,25 @@ class App:
             if info and info[2] in sys.modules:
                 del sys.modules[info[2]]
         gc.collect()
+
+    def recover(self, level):
+        """發生 MemoryError 後的逐級自救 (越來越狠, 但都不重開機): 1 整理+卸載別的頁面; 2 再丟掉這頁的子模組與暫存; 3 回首頁"""
+        gc.collect()
+        try:
+            self._evict(self.cur_id)
+            if level >= 2:
+                self.cur.trim()
+                self.link._rxbuf = bytearray()           # 收到一半的訊息一併丟棄 (手機會再同步)
+                self.link._txq = []
+            gc.collect()
+            if level >= 3 and self.cur_id != "home":
+                self.go("home")
+                gc.collect()
+        except MemoryError:
+            pass
+        self._sig = None
+        self.cur.dirty = True
+        return gc.mem_free()
 
     def free_mem(self, now=None, reply=True):
         """清理記憶體 (像手機的清理): 卸載所有不在用的頁面與程式碼、重置最低值, 兩次 gc 整併碎片。回傳(前,後)"""

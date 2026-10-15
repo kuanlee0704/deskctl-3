@@ -5,6 +5,7 @@ try:
     import ujson as json
 except ImportError:
     import json
+import gc
 from config import *
 
 _CONNECT = 1
@@ -128,6 +129,8 @@ class Link:
         """回傳手機傳來的訊息 (dict list)"""
         buf = self._rxbuf
         if buf.find(b"\n") < 0:
+            if len(buf) > 6000:                 # 一直沒有換行 = 壞資料, 不要無限累積
+                self._rxbuf = bytearray()
             return ()
         out = []
         mv = memoryview(buf)
@@ -136,13 +139,19 @@ class Link:
             i = buf.find(b"\n", st)
             if i < 0:
                 break
-            p = bytes(mv[st:i])
+            try:
+                p = bytes(mv[st:i])
+            except MemoryError:                 # 連一行都切不出來: 丟掉整個緩衝, 否則會永遠卡在這裡
+                st = len(buf)
+                break
             st = i + 1
             if not p:
                 continue
+            if len(p) > 500:                    # 大訊息解析前先整理, 免得碎片讓它失敗
+                gc.collect()
             try:
                 m = json.loads(p)
-            except Exception:
+            except Exception:               # 含 MemoryError: 這則丟掉, 手機之後會再傳
                 continue
             self.last_rx = now
             self.ever_rx = True

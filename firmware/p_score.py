@@ -97,6 +97,10 @@ class ScorePage(Page):
                 return None
         return self._m
 
+    def trim(self):
+        self._drop()
+        self._fail = 0
+
     def on_reset(self, now):
         self.app.link.send({"c": "sync"})
 
@@ -132,9 +136,6 @@ class ScorePage(Page):
         a = self._age_s()
         if a < 0:
             return ""
-        sc = self._sc()
-        if sc and sc.get("dl"):                 # 延遲播放中: 顯示的是 (收到資料的秒數 + 延遲秒數) 之前的實況
-            a += sc["dl"]
         return "(:%02d)" % a if a < 60 else ("(%02d:)" % (a // 60) if a < 6000 else "(--)")
 
     def get_title(self):
@@ -178,7 +179,7 @@ class ScorePage(Page):
 
     def buf_left(self, sc, now):
         """延遲播放剛開始, 還要緩衝幾秒 (0 = 緩衝完成)"""
-        t = self.st.score_t.get(self.sel)
+        t = self.st.buf_t.get(self.sel)
         if t is None:
             return 0
         return max(0, sc.get("bf", 0) - time.ticks_diff(now, t) // 1000)
@@ -211,6 +212,8 @@ class ScorePage(Page):
         if k in (K_LEFT, K_RIGHT) and n > 1:
             if ev == EV_CLICK:
                 self.sel = (self.sel + (1 if k == K_RIGHT else -1)) % n
+                self.view = 0                      # 換場次一律回主頁
+                self._mqs = {}
                 self._tell()
                 return True
             if ev in (EV_PRESS, EV_RELEASE, EV_DOUBLE, EV_TRIPLE, EV_LONG, EV_HOLD):
@@ -237,7 +240,11 @@ class ScorePage(Page):
             if len(self._mqs) >= 3 and key not in self._mqs:
                 c.text(clip_text(c, s, w), x, y, col)
                 return
-            m = self._mqs[key] = Marquee(self.app.mq[0].cv.font, w, col)
+            try:
+                m = self._mqs[key] = Marquee(self.app.mq[0].cv.font, w, col)
+            except MemoryError:
+                c.text(clip_text(c, s, w), x, y, col)
+                return
         m.draw(c, x, y, s, self._now, BG, col)
         self._anim = True
 

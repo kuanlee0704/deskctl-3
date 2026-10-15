@@ -388,7 +388,12 @@ check("interp halfway", 5700 <= c1 <= 5900, (c0, c1))
 r.run(6000)
 c2 = a.cur.clk(r.st.scores[0], a.cur._now)
 check("holds at next known value (no overshoot)", c2 == 5600, c2)
-tg2 = a.cur.get_tag(); check("age tag includes delay", tg2.startswith("(:") and int(tg2[2:4]) >= 15, tg2)
+r.msg(k="score", i=0, lg="NBA", st="L", a="LAL", h="GSW", q=2, c="x", cs=5600, cr=0, dl=15, **{"as": 12, "hs": 8}); r.run(300)
+tg2 = a.cur.get_tag(); check("age tag resets to 0 on update (no delay added)", tg2 in ("(:00)", "(:01)"), repr(tg2))
+r.msg(k="games", l=[["NBA", "LAL", "GSW"], ["NBA", "BOS", "MIA"]]); r.run(30)
+a.cur.view = 2; a.cur.sel = 0; a.cur.on_key(K_RIGHT, EV_CLICK, clock.now); r.run(10)
+check("switching game returns to main view", a.cur.view == 0 and a.cur.sel == 1, (a.cur.view, a.cur.sel))
+a.cur.sel = 0; a.cur._tell(); r.run(30)
 r.msg(k="score", i=0, lg="NBA", st="L", a="LAL", h="GSW", q=2, c="x", cs=6000, cn=6000, cd=4000, cr=0, dl=15, **{"as": 12, "hs": 8}); r.run(3000)
 check("stopped clock stays", a.cur.clk(r.st.scores[0], a.cur._now) == 6000)
 
@@ -406,3 +411,12 @@ r.msg(k="score", i=0, lg="NBA", st="L", a="LAL", h="GSW", q=1, c="4:20", **{"as"
 check("board derives +2 for away", r.st.kk.get(0) == (0, 2), r.st.kk)
 
 print("\n%d failures" % len(fails)); sys.exit(1 if fails else 0)
+
+# ---- 記憶體不足自救 ----
+r.app.go("score", clock.now)
+for lv in (1, 2, 3):
+    r.app.recover(lv)
+check("recover level3 goes home", r.app.cur_id == "home", r.app.cur_id)
+r.app.link._rxbuf = bytearray(b"x" * 7000)
+r.app.link.poll(clock.now)
+check("runaway rx buffer is dropped", len(r.app.link._rxbuf) == 0)

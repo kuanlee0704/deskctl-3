@@ -130,7 +130,7 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
                 }
                 // 這幾場剛確認過資料 (沒變動也算): 控制器用來顯示「距離上次更新」
                 val ok = JSONArray()
-                for (i in res.keys) if (i !in delayed) ok.put(i)
+                for (i in res.keys) ok.put(i)
                 if (ok.length() > 0) host.send(JSONObject().put("k", "scok").put("l", ok))
                 anyLive = live
                 summary = sum
@@ -181,6 +181,9 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
             val first = JSONObject(o.toString())
             first.put("bf", sec).put("dl", sec).put("cr", 0)
             host.send(first)
+            // 同一筆也排進佇列: 緩衝結束時從它開始, 順著後面收到的資料一路倒數 (不會停在原地再跳)
+            queue.add(Snap(now, now + delayMs, JSONObject(o.toString())))
+            host.handler.postDelayed(flushRun, delayMs)
             return
         }
         queue.add(Snap(now, now + delayMs, JSONObject(o.toString())))
