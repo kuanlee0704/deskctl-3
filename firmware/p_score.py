@@ -30,9 +30,13 @@ class ScorePage(Page):
         self._s = None
         self._sn = ""
         self._fail = 0
+        self._D = None            # 顯示用倒數 (毫秒, 平滑後)
+        self._Dt = 0
+        self._Dk = None
 
     # ---------- 進出 ----------
     def _tell(self):
+        self._D = None
         self.app.link.send({"c": "sc", "on": 1, "sel": self.sel})
         self.st.set_sel(self.sel)
         self._mqs = {}
@@ -120,6 +124,8 @@ class ScorePage(Page):
             return 5 if s == "L" else (4 if s == "F" else 2)
         if lg == "CPBL":
             return 1 if s == "P" else 2
+        if lg == "SOC":
+            return 1 if s == "P" else 4
         return 1 if s == "P" else 5
 
     def _v(self):
@@ -148,7 +154,9 @@ class ScorePage(Page):
         if v:
             lg = self.st.games[min(self.sel, n - 1)][0]
             s = sc.get("st") if sc else None
-            if lg == "MLB":
+            if lg == "SOC":
+                lab = " 球統計"
+            elif lg == "MLB":
                 lab = {"L": " 詳即戰得", "F": " 詳得星", "P": " 詳先"}.get(s, " 詳")
             else:
                 lab = " 詳投助員"
@@ -157,25 +165,53 @@ class ScorePage(Page):
 
     # ---------- 籃球計時器: 手機每幾秒給一次剩餘時間, 中間在這裡往下推算 ----------
     def clk(self, sc, now):
-        """剩餘時間 (0.1 秒); 沒有計時資料回傳 -1"""
+        """顯示用剩餘時間 (0.1 秒); 沒有計時資料回傳 -1。
+        先算出「資料說現在應該是多少」(T): 延遲播放=兩筆已知資料之間插值, 否則=從最近一筆往下推;
+        再用平滑器顯示: 計時在跑時固定一秒一秒往下 (不會因為資料忽快忽慢而一次跳好幾秒),
+        顯示落後資料時最多略微加速追上, 絕不比資料更前面 (停在已知的下一筆)。"""
         cs = sc.get("cs")
         if cs is None:
             return -1
         if sc.get("dl") is not None:
-            # 延遲播放: 手機把畫面延後, 並告訴我們下一筆真實資料的時間 (cn) 與相隔毫秒 (cd);
-            # 這裡只在兩筆已知資料之間線性插值, 不猜未來; 下一筆還沒到就停在目前值
             cn = sc.get("cn")
             cd = sc.get("cd") or 0
             if cn is None or cn >= cs or cd <= 0:
-                return cs
-            e = time.ticks_diff(now, self.st.clk_t.get(self.sel, now))
-            if e >= cd:
-                return cn
-            return cs - (cs - cn) * e // cd
-        d = 0
-        if sc.get("cr"):
-            d = min(time.ticks_diff(now, self.st.clk_t.get(self.sel, now)), 20000) // 100
-        return cs - d if cs > d else 0
+                t, run = cs, False
+            else:
+                e = time.ticks_diff(now, self.st.clk_t.get(self.sel, now))
+                run = True
+                t = cn if e >= cd else cs - (cs - cn) * e // cd
+        else:
+            run = bool(sc.get("cr"))
+            d = 0
+            if run:
+                d = min(time.ticks_diff(now, self.st.clk_t.get(self.sel, now)), 20000) // 100
+            t = cs - d if cs > d else 0
+        return self._smooth(t, run, sc.get("q"), now)
+
+    def _smooth(self, t, run, q, now):
+        key = (self.sel, q)
+        tm = t * 100
+        dm = self._D
+        if dm is None or key != self._Dk or tm > dm:     # 第一次 / 換場或換節 / 資料說還有更多時間 -> 直接對齊
+            dm = tm
+        else:
+            dt = time.ticks_diff(now, self._Dt)
+            if dt > 0:
+                lag = dm - tm
+                if not run:
+                    st = dt * 3                       # 資料說已停: 很快收斂到資料值
+                elif lag > 5000:
+                    st = dt * 3 // 2                  # 落後超過 5 秒: 略微加速追上
+                else:
+                    st = dt                           # 正常: 剛好一秒一秒
+                dm -= st
+                if dm < tm:
+                    dm = tm                           # 不超前已知資料
+        self._D = dm
+        self._Dt = now
+        self._Dk = key
+        return dm // 100
 
     def buf_left(self, sc, now):
         """延遲播放剛開始, 還要緩衝幾秒 (0 = 緩衝完成)"""
@@ -266,7 +302,7 @@ class ScorePage(Page):
             c.text("%s  vs  %s" % (g[1], g[2]), 6, 22, FG)
             c.text("等待手機傳送比分…", 6, 40, DIM)
             return
-        m = self._mod("p_scorebb" if g[0] in BASE else "p_scorebk")
+        m = self._mod("p_scorebb" if g[0] in BASE else ("p_scoresc" if g[0] == "SOC" else "p_scorebk"))
         if m is None:
             c.text("記憶體不足, 稍後重試", 6, 30, WARN)
             return

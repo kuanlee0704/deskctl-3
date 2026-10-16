@@ -117,10 +117,11 @@ object ScoreApi {
         }
     }
 
-    fun list(lg: String, date: LocalDate): List<GameInfo> = when (lg) {
+    fun list(lg: String, date: LocalDate, soccer: List<String> = emptyList()): List<GameInfo> = when (lg) {
         "MLB" -> listMlb(date)
         "NBA" -> listNba(date)
         "CPBL" -> listCpbl(date)
+        "SOC" -> ScoreSoccer.list(date, soccer)
         else -> emptyList()
     }
 
@@ -139,6 +140,7 @@ object ScoreApi {
             val o = when (t.lg) {
                 "NBA" -> fetchNba(t, detail && idx == sel)
                 "CPBL" -> fetchCpbl(t)
+                "SOC" -> ScoreSoccer.fetch(t)
                 else -> null
             } ?: continue
             out[idx] = o.put("k", "score").put("i", idx)

@@ -17,6 +17,11 @@ class NotifListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         if (sbn != null) {
             try {
+                MsgCapture.posted(applicationContext, sbn)
+            } catch (e: Exception) {
+                AppLog.w("MSGDB", "收錄通知失敗: " + e)
+            }
+            try {
                 MsgBus.onPosted?.invoke(sbn)
             } catch (e: Exception) {
                 AppLog.w("MSG", "處理通知失敗: " + e)
@@ -26,6 +31,10 @@ class NotifListener : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         if (sbn != null) {
+            try {
+                MsgCapture.removed(applicationContext, sbn)
+            } catch (_: Exception) {
+            }
             try {
                 MsgBus.onRemoved?.invoke(sbn)
             } catch (_: Exception) {

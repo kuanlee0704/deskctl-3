@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/w_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg_off"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="8dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="桌邊控制器"
+        android:textColor="#CCFFFFFF"
+        android:textSize="11sp" />
+
+    <TextView
+        android:id="@+id/w_state"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="已停止"
+        android:textColor="#FFFFFFFF"
+        android:textSize="17sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/w_hint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="點一下啟動"
+        android:textColor="#CCFFFFFF"
+        android:textSize="10sp" />
+</LinearLayout>

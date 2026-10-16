@@ -119,9 +119,10 @@ class ScorePage(private val act: Activity) {
         render()
         val l = lg
         val d = date
+        val soc = Prefs.soccerLeagues(act).split(",").filter { it.isNotBlank() }
         Thread {
             val r = try {
-                ScoreApi.list(l, d)
+                ScoreApi.list(l, d, soc)
             } catch (e: Exception) {
                 AppLog.w("SCORE", "賽程讀取失敗: $e")
                 null
@@ -167,7 +168,7 @@ class ScorePage(private val act: Activity) {
         if (tracked.isEmpty()) tv(tc, "還沒有追蹤任何比賽, 從下方選擇。", 13f, cSub)
         for (i in tracked.indices) {
             val t = tracked[i]
-            tv(tc, (i + 1).toString() + ". [" + t.lg + "] " + Teams.label(t.lg, t.a) + " @ " + Teams.label(t.lg, t.h) + "  (" + fmt(t.startMs) + ")", 14f, cText, true).setPadding(0, dp(8), 0, 0)
+            tv(tc, (i + 1).toString() + ". [" + (if (t.lg == "SOC") "足球" else t.lg) + "] " + Teams.label(t.lg, t.a) + " @ " + Teams.label(t.lg, t.h) + "  (" + fmt(t.startMs) + ")", 14f, cText, true).setPadding(0, dp(8), 0, 0)
             ScoreFeature.summary[i]?.let { tv(tc, "   " + it, 13f, cGood) }
             val r = row(tc)
             btn(r, "↑") { if (i > 0) { tracked.add(i - 1, tracked.removeAt(i)); save(); render() } }
@@ -179,9 +180,23 @@ class ScorePage(private val act: Activity) {
         val c = card()
         tv(c, "新增比賽", 16f, cText, true)
         val lr = row(c)
-        for (x in listOf("MLB", "NBA", "CPBL")) {
-            btn(lr, if (x == lg) "● $x" else x, x == lg) {
+        for (x in listOf("MLB", "NBA", "CPBL", "SOC")) {
+            btn(lr, if (x == lg) "● " + (if (x == "SOC") "足球" else x) else (if (x == "SOC") "足球" else x), x == lg) {
                 if (x != lg) { lg = x; load() }
+            }
+        }
+        if (lg == "SOC") {
+            val sel = Prefs.soccerLeagues(act).split(",").filter { it.isNotBlank() }
+            btn(c, "聯賽: " + (if (sel.isEmpty()) "(未選)" else sel.joinToString(" ") { ScoreSoccer.leagueName(it) }) + "  (點此更改)") {
+                val names = ScoreSoccer.LEAGUES.map { it.second }.toTypedArray()
+                val on = BooleanArray(names.size) { ScoreSoccer.LEAGUES[it].first in sel }
+                android.app.AlertDialog.Builder(act).setTitle("要查哪些聯賽")
+                    .setMultiChoiceItems(names, on) { _, i, v -> on[i] = v }
+                    .setPositiveButton("確定") { _, _ ->
+                        val ids = ScoreSoccer.LEAGUES.filterIndexed { i, _ -> on[i] }.map { it.first }
+                        Prefs.setSoccerLeagues(act, ids.joinToString(","))
+                        load()
+                    }.setNegativeButton("取消", null).show()
             }
         }
         val dr = row(c)
@@ -214,7 +229,7 @@ class ScorePage(private val act: Activity) {
                 val box = LinearLayout(act)
                 box.orientation = LinearLayout.VERTICAL
                 r.addView(box, LinearLayout.LayoutParams(0, -2, 1f))
-                tv(box, Teams.label(x.lg, x.a) + " @ " + Teams.label(x.lg, x.h), 16f, cText, true)
+                tv(box, (if (x.lg == "SOC") "[" + ScoreSoccer.leagueName(x.id.substringBefore(':')) + "] " else "") + Teams.label(x.lg, x.a) + " @ " + Teams.label(x.lg, x.h), 16f, cText, true)
                 val st = when (x.status) { "L" -> "進行中"; "F" -> "已結束"; else -> "未開賽" }
                 val stCol = when (x.status) { "L" -> cGood; "F" -> cSub; else -> cPrimary }
                 val l2 = tv(box, fmt(x.startMs) + "  " + st, 13f, stCol)

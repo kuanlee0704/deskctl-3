@@ -43,7 +43,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- 手機訊息資料庫 (不必啟動連線就能看; 桌面小工具與長按圖示的捷徑都會開這頁) -->
+        <activity
+            android:name=".MessagesActivity"
+            android:exported="true"
+            android:label="手機訊息" />
 
         <service
             android:name=".BridgeService"
@@ -72,6 +79,24 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_config" />
         </service>
+
+        <!-- 桌面小工具 -->
+        <receiver android:name=".ToggleWidget" android:exported="false" android:label="桌邊控制器 開關">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_toggle_info" />
+        </receiver>
+        <receiver android:name=".BarWidget" android:exported="false" android:label="桌邊控制器 控制列">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_bar_info" />
+        </receiver>
+        <receiver android:name=".MsgWidget" android:exported="false" android:label="手機訊息">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_msgs_info" />
+        </receiver>
+        <receiver android:name=".ScWidget" android:exported="false" android:label="桌邊控制器 捷徑">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_sc_info" />
+        </receiver>
 
         <receiver android:name=".BootReceiver" android:exported="true">
             <intent-filter>

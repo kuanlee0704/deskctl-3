@@ -368,6 +368,23 @@ for v in (0, 1):
 for j in range(5):
     snap(r, "score switch %d" % j); r.click(K_RIGHT)
 
+# ---------- 足球 ----------
+r = mk(); r.app.go("score", clock.now); r.run(100)
+r.msg(k="games", l=[["SOC", "MCI", "LIV"], ["SOC", "RMA", "BAR"]]); r.run(100)
+soc = dict(k="score", i=0, lg="SOC", st="L", a="MCI", h="LIV", ln="國際友誼賽", tn="曼城 v 利物浦", tm="10/17 02:00", q=2, c="45'+2'", **{"as": 2, "hs": 10},
+           ev=[["12", 0, "g", "Haaland-Longname"], ["30", 1, "y", "Salah"], ["45'+2", 1, "p", "Salah"], ["60", 0, "r", "Rodri"], ["71", 1, "o", "Dias"], ["80", 0, "g", "Foden"]],
+           sa=[55, 14, 6, 7, 10, 2, 1, 1], sh=[45, 9, 3, 4, 12, 1, 3, 0])
+r.msg(**soc); r.run(50)
+for v in range(4):
+    r.app.cur.view = v; snap(r, "soc live v=%d" % v)
+r.msg(**dict(soc, c="HT", sa=None, sh=None, ev=None)); r.run(50)
+for v in range(4):
+    r.app.cur.view = v; snap(r, "soc noext v=%d" % v)
+r.msg(**dict(soc, c="PK", st="F", ps=[4, 5])); r.run(50)
+r.app.cur.view = 0; snap(r, "soc final pk")
+r.msg(**dict(k="score", i=1, lg="SOC", st="P", a="RMA", h="BAR", tm="10/17 03:00")); r.run(50)
+r.app.cur.sel = 1; r.app.cur.view = 0; snap(r, "soc pre")
+
 # ---------- 手機控制頁 ----------
 r = mk(); r.app.go("pad", clock.now); r.run(100); snap(r, "pad empty")
 for labs in (["上滾", "下滾", "左滾", "右滾", "點擊"], ["音量+", "下一首", "音量-", "上一首", "播放"], ["Camera", "Messages", "Chrome", "Settings", "Gallery1"], ["", "", "", "", ""]):

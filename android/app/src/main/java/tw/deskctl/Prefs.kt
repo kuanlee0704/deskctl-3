@@ -56,6 +56,17 @@ object Prefs {
     fun msgHide(c: Context): Boolean = sp(c).getBoolean("msg_hide", false)
     fun setMsgHide(c: Context, v: Boolean) { sp(c).edit().putBoolean("msg_hide", v).apply() }
     /** 只轉發這些 App 的通知 (白名單; 空 = 都不轉發) */
+    /** 手機訊息資料庫: 是否收錄 / 是否收錄所有 App (不只勾選的) */
+    fun msgDb(c: Context): Boolean = sp(c).getBoolean("msg_db", true)
+    fun setMsgDb(c: Context, v: Boolean) { sp(c).edit().putBoolean("msg_db", v).apply() }
+    fun msgDbAll(c: Context): Boolean = sp(c).getBoolean("msg_db_all", false)
+    fun setMsgDbAll(c: Context, v: Boolean) { sp(c).edit().putBoolean("msg_db_all", v).apply() }
+    /** 訊息資料庫自動刪除幾天前的舊訊息; 0 = 永不 (預設, 只有你手動刪才會刪) */
+    fun msgKeepDays(c: Context): Int = sp(c).getInt("msg_keep_days", 0)
+    fun setMsgKeepDays(c: Context, v: Int) { sp(c).edit().putInt("msg_keep_days", v).apply() }
+    /** 訊息資料庫「依對話分組」: 0 = 自動 (社群/通訊 App 會分組), 1 = 一律分組, 2 = 不分組 (照時間排) */
+    fun convMode(c: Context, pkg: String): Int = sp(c).getInt("conv_mode_$pkg", 0)
+    fun setConvMode(c: Context, pkg: String, v: Int) { sp(c).edit().putInt("conv_mode_$pkg", v).apply() }
     fun msgAllow(c: Context): Set<String> = getSet(c, "msg_allow")
     fun setMsgAllow(c: Context, v: Collection<String>) = putSet(c, "msg_allow", v)
 
@@ -81,6 +92,10 @@ object Prefs {
     /** 比分板: 追蹤中的比賽清單 (JSON, 格式見 ScoreApi.kt 的 Tracked) */
     fun scoreTracked(c: Context): String = sp(c).getString("score_tracked", "[]") ?: "[]"
     fun setScoreTracked(c: Context, v: String) { sp(c).edit().putString("score_tracked", v).apply() }
+
+    /** 足球: 賽程要查哪些聯賽 (ESPN 代碼, 逗號分隔) */
+    fun soccerLeagues(c: Context): String = sp(c).getString("soccer_leagues", ScoreSoccer.DEFAULT) ?: ScoreSoccer.DEFAULT
+    fun setSoccerLeagues(c: Context, v: String) { sp(c).edit().putString("soccer_leagues", v).apply() }
 
     /** 捷徑清單 (JSON 字串, 格式見 Shortcuts.kt) */
     /** 手機控制器的模式 (JSON 陣列) 與目前使用第幾組 */

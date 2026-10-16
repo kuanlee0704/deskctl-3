@@ -10,8 +10,17 @@ android {
         applicationId = "tw.deskctl"
         minSdk = 26
         targetSdk = 34
-        versionCode = 26
-        versionName = "1.10.4"
+        versionCode = 31
+        versionName = "1.12.0"
+    }
+    // 固定的除錯簽章: 每次 GitHub Actions 打包出來的 APK 簽章相同, 才能直接「覆蓋安裝」並保留設定
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

@@ -80,6 +80,7 @@ class BridgeService : Service() {
             connected = v
             if (v) { searchSince = 0L; paused = false; forceSearch = false }
             connectedSince = if (v) SystemClock.elapsedRealtime() else 0L
+            Widgets.updateAll(this@BridgeService)
         }
     private var mtu = 23
     private var scanning = false
@@ -232,11 +233,13 @@ class BridgeService : Service() {
             getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotif(s))
         } catch (_: Exception) {
         }
+        Widgets.updateAll(this)
     }
 
     private fun init() {
         inited = true
         running = true
+        Widgets.updateAll(this)
         Prefs.setWasStarted(this, true)
         am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         AppLog.i(TAG, "服務啟動")
@@ -286,6 +289,7 @@ class BridgeService : Service() {
         closeGatt()
         setStatus("已停止")
         AppLog.i(TAG, "服務已停止")
+        Widgets.updateAll(this)
     }
 
     override fun onDestroy() {
@@ -383,6 +387,7 @@ class BridgeService : Service() {
         searchSince = 0L
         acquireWake()
         AppLog.i(TAG, "恢復搜尋控制器")
+        Widgets.updateAll(this)
     }
 
     private fun startScan(ad: BluetoothAdapter) {

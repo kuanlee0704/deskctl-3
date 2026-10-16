@@ -1,4 +1,7 @@
 <resources>
     <string name="app_name">桌邊控制器</string>
     <string name="acc_desc">讓「捷徑」能在你按下桌邊控制器時, 替你點擊畫面或按返回。不會讀取或上傳畫面內容。</string>
+    <string name="sc_messages">訊息</string>
+    <string name="sc_messages_long">手機訊息資料庫</string>
+    <string name="w_toggle_name">桌邊控制器 開關</string>
 </resources>

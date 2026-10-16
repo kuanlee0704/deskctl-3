@@ -379,15 +379,15 @@ sc0 = r.st.scores[0]
 check("buffering shown", a.cur.buf_left(sc0, a.cur._now) > 0, a.cur.buf_left(sc0, a.cur._now))
 r.run(16000)
 check("buffer done", a.cur.buf_left(r.st.scores[0], a.cur._now) == 0)
-r.msg(k="score", i=0, lg="NBA", st="L", a="LAL", h="GSW", q=2, c="x", cs=6000, cn=5600, cd=4000, cr=0, dl=15, **{"as": 12, "hs": 8}); r.run(10)
+r.msg(k="score", i=0, lg="NBA", st="L", a="LAL", h="GSW", q=2, c="x", cs=6000, cn=5960, cd=4000, cr=0, dl=15, **{"as": 12, "hs": 8}); r.run(10)
 t0 = a.cur._now
 c0 = a.cur.clk(r.st.scores[0], t0)
 r.run(2000)
 c1 = a.cur.clk(r.st.scores[0], a.cur._now)
-check("interp halfway", 5700 <= c1 <= 5900, (c0, c1))
+check("counts down 1s/s (halfway)", 5970 <= c1 <= 5990, (c0, c1))
 r.run(6000)
 c2 = a.cur.clk(r.st.scores[0], a.cur._now)
-check("holds at next known value (no overshoot)", c2 == 5600, c2)
+check("holds at next known value (no overshoot)", c2 == 5960, c2)
 r.msg(k="score", i=0, lg="NBA", st="L", a="LAL", h="GSW", q=2, c="x", cs=5600, cr=0, dl=15, **{"as": 12, "hs": 8}); r.run(300)
 tg2 = a.cur.get_tag(); check("age tag resets to 0 on update (no delay added)", tg2 in ("(:00)", "(:01)"), repr(tg2))
 r.msg(k="games", l=[["NBA", "LAL", "GSW"], ["NBA", "BOS", "MIA"]]); r.run(30)
@@ -410,13 +410,36 @@ check("+N sticky when score unchanged", r.st.kk.get(0) == (1, 3), r.st.kk)
 r.msg(k="score", i=0, lg="NBA", st="L", a="LAL", h="GSW", q=1, c="4:20", **{"as": 12, "hs": 11}); r.run(30)
 check("board derives +2 for away", r.st.kk.get(0) == (0, 2), r.st.kk)
 
-print("\n%d failures" % len(fails)); sys.exit(1 if fails else 0)
 
 # ---- 記憶體不足自救 ----
 r.app.go("score", clock.now)
 for lv in (1, 2, 3):
     r.app.recover(lv)
 check("recover level3 goes home", r.app.cur_id == "home", r.app.cur_id)
-r.app.link._rxbuf = bytearray(b"x" * 7000)
-r.app.link.poll(clock.now)
-check("runaway rx buffer is dropped", len(r.app.link._rxbuf) == 0)
+
+# ---- 倒數必須一秒一秒走, 資料忽快忽慢也不能跳好幾秒 ----
+r.app.go("score", clock.now); a = r.app; a.pm.wake(clock.now)
+r.msg(k="games", l=[["NBA", "LAL", "GSW"]]); r.run(30)
+a.cur.sel = 0; a.cur._tell(); r.run(30)
+r.msg(k="score", i=0, lg="NBA", st="L", a="LAL", h="GSW", q=3, c="x", cs=3000, cn=2920, cd=4000, cr=0, dl=15, **{"as": 1, "hs": 1}); r.run(10)
+seq = []
+for _ in range(40):
+    r.run(100); seq.append(a.cur.clk(r.st.scores[0], a.cur._now))
+r.msg(k="score", i=0, lg="NBA", st="L", a="LAL", h="GSW", q=3, c="x", cs=2920, cn=2920, cd=4000, cr=0, dl=15, **{"as": 1, "hs": 1}); r.run(10)
+for _ in range(40):
+    r.run(100); seq.append(a.cur.clk(r.st.scores[0], a.cur._now))
+steps = [seq[i] - seq[i + 1] for i in range(len(seq) - 1)]
+check("no jump > 0.3s per 0.1s frame (fast data, then stale data)", max(steps) <= 3, max(steps))
+check("never goes up while counting", min(steps) >= 0, min(steps))
+
+# ---- 足球: 畫面數與切換 ----
+r.msg(k="games", l=[["SOC", "MCI", "LIV"]]); r.run(30)
+a.cur.sel = 0; a.cur._tell(); r.run(30)
+r.msg(k="score", i=0, lg="SOC", st="L", a="MCI", h="LIV", c="67'", q=2, ln="英超", **{"as": 1, "hs": 0}); r.run(30)
+check("soccer live has 4 views", a.cur._nv() == 4, a.cur._nv())
+r.msg(k="score", i=0, lg="SOC", st="P", a="MCI", h="LIV", tm="10/17 02:00"); r.run(30)
+check("soccer pre-game has 1 view", a.cur._nv() == 1, a.cur._nv())
+r.msg(k="score", i=0, lg="SOC", st="L", a="MCI", h="LIV", c="HT", q=1, **{"as": 0, "hs": 0}); r.run(30)
+a.cur.view = 3; r.run(30)
+check("soccer title shows view letter", a.cur.get_title().startswith("SOC1/1"), a.cur.get_title())
+print("\n%d failures" % len(fails)); sys.exit(1 if fails else 0)

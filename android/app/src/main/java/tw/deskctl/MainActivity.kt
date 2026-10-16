@@ -246,6 +246,7 @@ class MainActivity : Activity() {
         btnToggle.textSize = 18f
         btnToggle.setPadding(0, dp(14), 0, dp(14))
         btnReconnect = button(col, "重新連線") { startSvc(BridgeService.ACTION_RECONNECT) }
+        button(col, "手機訊息資料庫") { startActivity(Intent(this, MessagesActivity::class.java)) }
 
         val info = card(col)
         tvInfo = text(info, "", 14f, C_TEXT)
@@ -506,6 +507,32 @@ class MainActivity : Activity() {
             }
         }
         tvMsgSel.text = msgSelText()
+
+        // ---- 手機訊息資料庫 ----
+        val dbc = card(col)
+        text(dbc, "手機訊息資料庫", 16f, C_TEXT, true)
+        text(dbc, "把收到的通知存在手機上, 不必連著控制器、也不用打開原本的 App 就能先看內容 (可搜尋、依 App 篩選、只看未讀)。資料只存在這支手機。桌面小工具與長按本 App 圖示的「訊息」捷徑也能直接開啟。", 12f, C_SUB)
+        val d1 = Switch(this)
+        d1.text = "收錄通知到訊息資料庫"
+        d1.isChecked = Prefs.msgDb(this)
+        d1.setOnCheckedChangeListener { _, c -> Prefs.setMsgDb(this, c) }
+        dbc.addView(d1, LinearLayout.LayoutParams(-1, -2))
+        val d2 = Switch(this)
+        d2.text = "收錄所有 App (不限上面勾選的)"
+        d2.isChecked = Prefs.msgDbAll(this)
+        d2.setOnCheckedChangeListener { _, c -> Prefs.setMsgDbAll(this, c) }
+        dbc.addView(d2, LinearLayout.LayoutParams(-1, -2))
+        val keepOpts = intArrayOf(0, 30, 90, 180, 365)
+        fun keepText(d: Int) = "自動刪除舊訊息: " + (if (d <= 0) "永不 (只有你手動刪才會刪)" else "超過 $d 天的")
+        val btnKeep = button(dbc, keepText(Prefs.msgKeepDays(this))) { }
+        btnKeep.setOnClickListener {
+            val cur = keepOpts.indexOf(Prefs.msgKeepDays(this)).let { if (it < 0) 0 else it }
+            val next = keepOpts[(cur + 1) % keepOpts.size]
+            Prefs.setMsgKeepDays(this, next)
+            btnKeep.text = keepText(next)
+        }
+        text(dbc, "手機上把通知滑掉或已讀時, 資料庫裡只會標為已讀、不會刪除。", 12f, C_SUB)
+        button(dbc, "開啟訊息資料庫", true) { startActivity(Intent(this, MessagesActivity::class.java)) }
 
         // ---- 控制器目錄 ----
         val lay = card(col)

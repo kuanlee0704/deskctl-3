@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="messages"
+        android:enabled="true"
+        android:shortcutShortLabel="@string/sc_messages"
+        android:shortcutLongLabel="@string/sc_messages_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="tw.deskctl.MessagesActivity"
+            android:targetPackage="tw.deskctl" />
+    </shortcut>
+</shortcuts>

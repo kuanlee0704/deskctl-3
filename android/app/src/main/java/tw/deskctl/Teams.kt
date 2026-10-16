@@ -21,9 +21,22 @@ object Teams {
         "UTAH" to "爵士", "WAS" to "巫師", "WSH" to "巫師"
     )
 
+    private val soc = mapOf(
+        "ARS" to "兵工廠", "AVL" to "維拉", "BOU" to "般尼茅夫", "BRE" to "布倫特福德", "BHA" to "布萊頓", "CHE" to "切爾西",
+        "CRY" to "水晶宮", "EVE" to "艾佛頓", "FUL" to "富勒姆", "LIV" to "利物浦", "MCI" to "曼城", "MUN" to "曼聯",
+        "NEW" to "紐卡索", "NFO" to "諾丁漢森林", "TOT" to "熱刺", "WHU" to "西漢姆", "WOL" to "狼隊", "LEE" to "里茲聯",
+        "BUR" to "般尼", "SUN" to "桑德蘭", "RMA" to "皇家馬德里", "BAR" to "巴塞隆納", "ATM" to "馬競", "SEV" to "塞維亞",
+        "BAY" to "拜仁", "DOR" to "多特蒙德", "LEV" to "勒沃庫森", "LEI" to "萊比錫", "JUV" to "尤文圖斯", "INT" to "國際米蘭",
+        "MIL" to "AC米蘭", "NAP" to "拿坡里", "ROM" to "羅馬", "PSG" to "巴黎聖日耳曼", "MAR" to "馬賽", "LYO" to "里昂",
+        "BEN" to "本菲卡", "SCP" to "里斯本競技", "AJA" to "阿賈克斯", "MIA" to "邁阿密國際", "LAFC" to "洛杉磯FC",
+        "LAG" to "洛杉磯銀河", "TPE" to "中華台北", "JPN" to "日本", "KOR" to "南韓", "USA" to "美國", "ENG" to "英格蘭",
+        "FRA" to "法國", "GER" to "德國", "ESP" to "西班牙", "ITA" to "義大利", "BRA" to "巴西", "ARG" to "阿根廷"
+    )
+
     fun cn(lg: String, code: String): String = when (lg) {
         "MLB" -> mlb[code.uppercase()] ?: code
         "NBA" -> nba[code.uppercase()] ?: code
+        "SOC" -> soc[code.uppercase()] ?: code
         else -> code
     }
 

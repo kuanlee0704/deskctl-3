@@ -166,6 +166,8 @@ class App:
         self._gc_n = 0
         self.pm = Power(self)
         self.t_boot = now
+        self.bad_msg = 0
+        self.err_n = 0
         self.mem_min = gc.mem_free()
         self._mem_t = now
         self._hello_conn = -1
@@ -305,6 +307,8 @@ class App:
 
     def act_toast(self, ev):
         s, n, m = ev
+        n = str(n) if n else ""
+        m = str(m) if m else ""
         if s == "run":
             t = "執行 " + n
         elif s == "done":
@@ -380,7 +384,14 @@ class App:
         # 手機訊息
         for m in self.link.poll(now):
             was = self.st.pl
-            self.st.apply(m, now)
+            try:
+                self.st.apply(m, now)
+            except MemoryError:
+                raise
+            except Exception as e:                 # 一則格式怪異的訊息只丟掉它, 不要讓整台重開
+                self.bad_msg += 1
+                print("bad msg", m.get("k") if isinstance(m, dict) else m, e)
+                continue
             ev = self.st.act_ev
             if ev is not None:
                 self.st.act_ev = None
@@ -458,6 +469,11 @@ class App:
         c.fill(BG)
         try:
             self.cur.draw(c, now)
+        except MemoryError:
+            raise
+        except Exception as e:                     # 畫面出錯: 顯示提示並記到 err.log, 不重開機
+            c.text("畫面錯誤, 見 err.log", 6, 34, BAD)
+            self.draw_err(e)
         finally:
             ui.draw_topbar(c, self.cur.get_title(), self.st, self.link, now,
                            self.st.cfg.get("h24"), bool(self.st.cfg.get("tsecs")), self.cur.get_tag())
@@ -469,6 +485,18 @@ class App:
             c.frect(x, 62, w, 16, PANEL)
             c.rect(x, 62, w, 16, ACC)
             c.text(self._toast, x + 6, 64, FG)
+
+    def draw_err(self, e):
+        if self.err_n < 3:                         # 只記前 3 次, 避免每一幀都寫快閃
+            self.err_n += 1
+            try:
+                import io
+                b = io.StringIO()
+                sys.print_exception(e, b)
+                with open("err.log", "w") as f:
+                    f.write("draw %s: %s\n" % (self.cur_id, b.getvalue()[-380:]))
+            except Exception:
+                pass
 
     def draw_hold(self, c, now):
         for k in range(5):

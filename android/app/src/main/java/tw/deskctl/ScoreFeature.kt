@@ -146,7 +146,9 @@ class ScoreFeature(host: FeatureHost) : Feature(host) {
     private fun describe(o: JSONObject): String = when (o.optString("st")) {
         "P" -> "未開賽 " + o.optString("tm")
         "F" -> "結束 " + o.optInt("as") + ":" + o.optInt("hs")
-        else -> if (o.optString("lg") == "NBA") {
+        else -> if (o.optString("lg") == "SOC") {
+            o.optString("c") + "  " + o.optInt("as") + ":" + o.optInt("hs")
+        } else if (o.optString("lg") == "NBA") {
             "第" + o.optInt("q") + "節 " + o.optString("c") + "  " + o.optInt("as") + ":" + o.optInt("hs")
         } else {
             (o.optString("tx").ifEmpty { o.optInt("in").toString() + "局" }) + "  " + o.optInt("as") + ":" + o.optInt("hs")
