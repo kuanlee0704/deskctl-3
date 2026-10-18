@@ -1,4 +1,4 @@
-VERSION = "0.29.2"
+VERSION = "0.31.1"
 
 # ===== 硬體腳位 =====
 # 擴充板(Display-Keypad)是旋轉 180° 疊在核心板上: 擴充板第 n 腳 -> 核心板第 33-n 腳
@@ -57,3 +57,7 @@ ONLINE_TIMEOUT_MS = 25000   # 超過這時間沒收到手機 App 的訊息 -> �
 FONT_FILE = "font12.bin"
 SETTINGS_FILE = "settings.json"
 FPS_MS = 40         # 最快 25 fps
+
+MEM_LOW = 30000          # 載入新頁面前剩餘記憶體低於這個值 (位元組) 就先清理
+GC_THRESHOLD = 6000        # 主動回收的間隔 (配置位元組數); 0 或過大 = 只在記憶體不足時才回收
+RESERVE = 6144             # 預留一塊連續記憶體; 載入頁面失敗時先釋放它, 保證編譯有連續空間可用

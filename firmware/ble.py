@@ -64,7 +64,9 @@ class Link:
         self._resp = _adv_field(0x07, bytes(bluetooth.UUID(_NUS)))
         self.conn = None
         self.mtu = 23
-        self._rxbuf = bytearray()
+        self._rx = []                     # 收到的封包片段 (小物件, 不用一直放大同一塊緩衝區 -> 少碎片)
+        self._rxn = 0                     # 片段總長度
+        self._nl = False                  # 片段裡出現過換行 = 有完整訊息可以處理
         self._txq = []
         self.last_rx = 0
         self.ever_rx = False
@@ -105,7 +107,7 @@ class Link:
             self.mtu = 23
             self.ever_rx = False
             self._txq = []
-            self._rxbuf = bytearray()
+            self.drop_rx()
         elif ev == _DISCONNECT:
             self.n_disc += 1
             self.last_up = time.ticks_diff(time.ticks_ms(), self.t_conn) // 1000
@@ -117,48 +119,65 @@ class Link:
         elif ev == _WRITE:
             if data[1] == self.h_rx:
                 chunk = self.ble.gatts_read(self.h_rx)
-                if len(self._rxbuf) + len(chunk) < 4096:
-                    self._rxbuf += chunk
+                if self._rxn + len(chunk) < 4096:
+                    self._rx.append(chunk)
+                    self._rxn += len(chunk)
+                    if chunk.find(b"\n") >= 0:
+                        self._nl = True
                 else:
-                    self._rxbuf = bytearray()
+                    self.drop_rx()
         elif ev == _MTU:
             self.mtu = data[1]
 
     # ---- 收 ----
+    def drop_rx(self):
+        """丟掉收到一半的資料 (手機之後會再同步)"""
+        self._rx = []
+        self._rxn = 0
+        self._nl = False
+
     def poll(self, now):
-        """回傳手機傳來的訊息 (dict list)"""
-        buf = self._rxbuf
-        if buf.find(b"\n") < 0:
-            if len(buf) > 6000:                 # 一直沒有換行 = 壞資料, 不要無限累積
-                self._rxbuf = bytearray()
+        """回傳手機傳來的訊息 (dict list)。
+        封包片段先放在 list, 有換行才一次接起來 (一般就是一則完整訊息, 直接交給 json, 不再多複製一份)。"""
+        if not self._nl:
+            if self._rxn > 6000:                # 一直沒有換行 = 壞資料, 不要無限累積
+                self.drop_rx()
             return ()
+        self._nl = False                        # 先清旗標再換掉 list: 中途又來的片段不會被漏掉
+        ch = self._rx
+        self._rx = []
+        try:
+            data = b"".join(ch)
+        except MemoryError:                     # 接不起來: 這批丟掉, 否則會永遠卡在這裡
+            self._rxn = 0
+            return ()
+        ch = None
+        self._rxn = 0
         out = []
-        mv = memoryview(buf)
-        st = 0
-        while True:                         # 就地切出每一行 (MicroPython 的 bytearray 不能 del 切片, 所以用位移)
-            i = buf.find(b"\n", st)
-            if i < 0:
-                break
-            try:
-                p = bytes(mv[st:i])
-            except MemoryError:                 # 連一行都切不出來: 丟掉整個緩衝, 否則會永遠卡在這裡
-                st = len(buf)
-                break
-            st = i + 1
-            if not p:
+        if data.find(b"\n") == len(data) - 1:  # 常見情形: 剛好一則完整訊息 (json 允許尾端換行)
+            lines = (data,)
+            rest = b""
+        else:
+            lines = data.split(b"\n")
+            rest = lines.pop()                  # 最後一段是還沒收完的
+        data = None
+        for p in lines:
+            if len(p) < 2:
                 continue
             if len(p) > 500:                    # 大訊息解析前先整理, 免得碎片讓它失敗
                 gc.collect()
             try:
                 m = json.loads(p)
-            except Exception:               # 含 MemoryError: 這則丟掉, 手機之後會再傳
+            except Exception:                   # 含 MemoryError: 這則丟掉, 手機之後會再傳
                 continue
             self.last_rx = now
             self.ever_rx = True
             self.seen = True
             out.append(m)
-        mv = None
-        self._rxbuf = bytearray(buf[st:]) if st < len(buf) else bytearray()
+        lines = None
+        if rest:                                # 沒收完的放回最前面, 後面來的片段接在它後面
+            self._rx.insert(0, rest)
+            self._rxn += len(rest)
         return out
 
     # ---- 送 ----
@@ -211,6 +230,9 @@ class NullLink:
         return False
 
     def pump(self):
+        pass
+
+    def drop_rx(self):
         pass
 
     def disconnect(self):

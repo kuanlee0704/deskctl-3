@@ -1,34 +1,12 @@
+"""說明書: 內容放在 manual.txt (一頁一段, 空行分頁, 第一行是標題, 「@」代表圖解頁)。
+翻到那一頁才從檔案讀那幾行: 不用編譯一大串文字常數, 也不會長駐記憶體 (這頁的編譯曾在記憶體零碎時失敗)。"""
 from app import Page
 from keys import *
 from ui import *
+from array import array
 
-PAGES = (
-    ("圖解", None),
-    ("手勢", ("短按:按一下馬上放開", "雙擊:快速連按兩下", "長按:按住超過0.6秒", "超長按:按住5秒")),
-    ("全域", ("中央長按:開啟目錄", "目錄中再長按:回原頁", "中央連按3下:回首頁", "中央長按5秒:重啟整台")),
-    ("全域", ("首頁再連按3下:回剛才的頁", "方向鍵長按5秒:該頁重設", "非音樂頁:左右鍵切換快捷頁", "目錄內按右可加/移除★快捷")),
-    ("快捷鍵", ("手機App「按鍵」分頁設定", "雙擊/三連擊/長按綁動作", "分全域與各頁專區", "全域可勾優先於頁面", "離線也能用")),
-    ("目錄", ("上下:選擇功能", "中央:進入", "右:加入/移出★快捷", "左:返回原本的頁面")),
-    ("桌面", ("目錄進「桌面」: 桌邊擺放", "大時鐘+日期+手機電量", "藍牙/訊息/碼表圖示", "歌名 歌手 進度條", "按鍵同首頁 可控音樂")),
-    ("首頁", ("顯示時間與日期", "藍牙狀態、手機電量", "正在播放的歌曲", "時間由手機 App 自動校時")),
-    ("首頁音樂", ("首頁也能控音樂(短按切頁):", "中央:播放/暫停 雙擊:靜音", "上下:音量 上雙擊:隨機", "下雙擊:循環 左右雙擊:換歌", "左右長按:連續跳轉")),
-    ("碼表", ("中央:開始/暫停", "上:記圈  下:重設(暫停時)", "下雙擊:隨時強制重設", "離開頁面也會繼續計時", "計時中右上角有碼表圖示")),
-    ("音樂 1", ("中央:播放/暫停", "中央雙擊:靜音/取消靜音", "右:快轉5秒  左:倒轉5秒", "右(左)雙擊:下一首(上一首)", "右/左長按不放:連續跳轉")),
-    ("音樂 2", ("上:音量加  下:音量減", "上雙擊:隨機播放開關", "下雙擊:循環模式切換", "(不循環/清單/單曲循環)", "上下長按不放:連續調音量")),
-    ("遊戲", ("清單:上下選 中央開始", "遊戲中中央雙擊:回清單", "貪吃蛇:方向鍵轉彎", "1A2B:左右選位 上下改數", "超過5筆:上下長按翻紀錄")),
-    ("隨機取數", ("左右換位 上下改數", "範圍000~999 + 個數XX", "最右格:可否重複", "中央抽 結果上下捲動", "結果中雙擊:回設定")),
-    ("捷徑", ("手機 App 先設定捷徑:", "開App/網址、點擊、播放", "目錄進「捷徑」選一個", "中央:叫手機執行", "手機會回報完成或失敗")),
-    ("手機狀態", ("目錄進「手機狀態」", "上下換頁(4頁)", "灰字=資料過期", "中央:清理背景App+快取", "中央雙擊:再清最近使用")),
-    ("系統總覽", ("目錄進「系統總覽」", "總覽:手機+開發板重點", "運作:版本/已運作/重啟原因", "記憶體:用量 中鍵:清理", "連線:藍牙次數 手機資料新舊")),
-    ("比分板", ("手機 App「比分」選比賽", "NBA/MLB/CPBL/足球", "左右:換比賽(回主頁)", "上下:換畫面 細節/即時", "得分/數據 右上(:03)=秒前")),
-    ("手機控制", ("目錄進「手機控制」", "方向鍵:依模式控制手機", "滾動點擊手勢 長按連發", "中央雙擊:功能轉90度", "中央三下:回首頁")),
-    ("手機訊息", ("手機 App 開通知存取", "並選要轉發的App", "上下選 中央看內容", "總覽 長按左刪 右刪全部", "內容 長按左刪 右標記")),
-    ("訊息標記", ("標記的訊息不會被刪除", "也不會被手機端清除帶走", "要刪須先長按右解除標記", "黃方塊=已標記", "粉紅點=未讀")),
-    ("狀態欄", ("右上角由右至左:", "時鐘、藍牙(綠=已連線)", "▶ 手機正在播放音訊", "碼表圖示:碼表計時中")),
-    ("省電", ("閒置10分鐘:時鐘待機", "沒播歌時自動顯示大時鐘", "可設自動熄屏(面板睡眠)", "按鍵或手機播放即喚醒", "設定可開關閒置省電")),
-    ("連線", ("手機裝好桌邊控制器 App", "並開啟藍牙與通知存取", "右上藍牙圖示 綠:已連線", "黃:App未回應 灰:未連線")),
-    ("設定", ("快捷設定可調整:", "時間制、首頁/狀態欄顯示秒", "自動熄屏、跳轉秒數", "音量步進、螢幕方向校正")),
-)
+FILE = "manual.txt"
+NL = (b"\n", b"\r\n")
 
 
 class ManualPage(Page):
@@ -38,24 +16,74 @@ class ManualPage(Page):
     def __init__(self, app):
         Page.__init__(self, app)
         self.i = 0
+        self.off = array("I")           # 每一頁在檔案裡的起點 (只存數字, 很小)
+        self.name = ""
+        self.lines = ()
+        self._ld = -1
+        try:
+            with open(FILE, "rb") as f:
+                pos = 0
+                new = True
+                while True:
+                    ln = f.readline()
+                    if not ln:
+                        break
+                    if ln in NL:
+                        new = True
+                    elif new:
+                        self.off.append(pos)
+                        new = False
+                    pos += len(ln)
+        except OSError:
+            pass
 
     def get_title(self):
-        return "說明 %d/%d" % (self.i + 1, len(PAGES))
+        return "說明 %d/%d" % (self.i + 1, len(self.off)) if self.off else "說明書"
+
+    def _load(self):
+        self._ld = self.i
+        ls = []
+        try:
+            with open(FILE, "rb") as f:
+                f.seek(self.off[self.i])
+                while len(ls) < 8:
+                    ln = f.readline()
+                    if not ln or ln in NL:
+                        break
+                    ls.append(ln.decode().strip())
+        except OSError:
+            pass
+        self.name = ls[0] if ls else ""
+        self.lines = ls[1:]
+
+    def trim(self):
+        self.lines = ()
+        self._ld = -1
+
+    def leave(self):
+        self.trim()
 
     def on_key(self, k, ev, now):
         self.dirty = True
-        if k in (K_UP, K_DOWN) and ev in (EV_CLICK, EV_HOLD, EV_LONG):
-            self.i = (self.i + (1 if k == K_DOWN else -1)) % len(PAGES)
+        n = len(self.off)
+        if n and k in (K_UP, K_DOWN) and ev in (EV_CLICK, EV_HOLD, EV_LONG):
+            self.i = (self.i + (1 if k == K_DOWN else -1)) % n
             return True
         return ev in (EV_PRESS, EV_RELEASE)
 
     def draw(self, c, now):
-        name, lines = PAGES[self.i]
-        if lines is None:
+        if not self.off:
+            c.text("找不到 manual.txt", 6, 22, WARN)
+            c.text("請把韌體資料夾裡的", 6, 38, DIM)
+            c.text("manual.txt 一起上傳", 6, 52, DIM)
+            return
+        if self._ld != self.i:
+            self._load()
+        if self.lines and self.lines[0] == "@":
             self.diagram(c)
         else:
             y = 15
-            for ln in lines:
+            for ln in self.lines:
                 c.text(ln, 5, y, FG if ln[:1] not in "(" else DIM)
                 y += 13
 

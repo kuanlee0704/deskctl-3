@@ -436,12 +436,63 @@ check("never goes up while counting", min(steps) >= 0, min(steps))
 r.msg(k="games", l=[["SOC", "MCI", "LIV"]]); r.run(30)
 a.cur.sel = 0; a.cur._tell(); r.run(30)
 r.msg(k="score", i=0, lg="SOC", st="L", a="MCI", h="LIV", c="67'", q=2, ln="英超", **{"as": 1, "hs": 0}); r.run(30)
-check("soccer live has 4 views", a.cur._nv() == 4, a.cur._nv())
+check("soccer live has 6 views", a.cur._nv() == 6, a.cur._nv())
 r.msg(k="score", i=0, lg="SOC", st="P", a="MCI", h="LIV", tm="10/17 02:00"); r.run(30)
 check("soccer pre-game has 1 view", a.cur._nv() == 1, a.cur._nv())
 r.msg(k="score", i=0, lg="SOC", st="L", a="MCI", h="LIV", c="HT", q=1, **{"as": 0, "hs": 0}); r.run(30)
 a.cur.view = 3; r.run(30)
 check("soccer title shows view letter", a.cur.get_title().startswith("SOC1/1"), a.cur.get_title())
+r.msg(k="score", i=0, lg="SOC", st="F", a="MCI", h="LIV", c="FT", q=2, ln="英超", sa=[55, 12, 5, 6, 10, 2, 1, 0, 480, 88, 3, 14], sh=[45, 8, 3, 2, 12, 1, 2, 0, 390, 81, 4, 17],
+      gv="Etihad Stadium", gr="M. Oliver", ga="53,400", fa="4-3-3", fh="4-2-3-1", gw="Clear 15", **{"as": 2, "hs": 1}); r.run(30)
+check("soccer finished has 7 views", a.cur._nv() == 7, a.cur._nv())
+check("soccer title shows league name", a.cur.get_title().startswith("英超1/1"), a.cur.get_title())
+for v in range(7):
+    a.cur.view = v; r.run(60)             # 每個畫面都要能畫出來 (含 v6 載入戰績模組, 沒有 sr 時顯示暫無資料)
+check("soccer record view without data draws", a.cur.view == 6)
+r.msg(k="score", i=0, lg="SOC", st="F", a="MCI", h="LIV", c="FT", q=2, ln="英超",
+      sr={"t": "", "r": [["排名", "第1名", "第2名"], ["積分", "70", "66"], ["勝平負", "21-7-3", "20-6-5"], ["得失球", "+40", "+31"]]}, **{"as": 2, "hs": 1}); r.run(60)
+check("soccer record view with data draws", a.cur.view == 6 and r.st.scores[0].get("sr") is not None)
+
+# ---- 棒球得分紀錄: 不自動翻頁, 按中央鍵才翻 ----
+r.msg(k="games", l=[["MLB", "NYY", "BOS"]]); r.run(30)
+a.cur.sel = 0; a.cur.view = 0; a.cur.pg = 0; a.cur._tell(); r.run(30)
+sp = [[i // 2 + 1, i % 2, "Player %d" % i, "HR", i, 0] for i in range(9)]      # 9 筆 -> 3 頁
+r.msg(k="score", i=0, lg="MLB", st="L", a="NYY", h="BOS", **{"in": 5, "as": 4, "hs": 0}, sp=sp, tx="5局", hf=0, b=0, s=0, o=0, bs=0); r.run(30)
+check("mlb live has 5 views", a.cur._nv() == 5, a.cur._nv())
+a.cur.view = 4; r.run(60)
+check("plays page is paged view", a.cur._paged())
+for _ in range(80):
+    r.run(100)
+check("plays do NOT auto flip", a.cur.pg == 0, a.cur.pg)
+r.click(K_CENTER); r.run(100)
+check("center click flips to next page", a.cur.pg == 1, a.cur.pg)
+r.click(K_CENTER); r.click(K_CENTER); r.run(100)
+check("center click keeps flipping", a.cur.pg == 3, a.cur.pg)
+a.cur.view = 3; r.run(60); r.click(K_CENTER); r.run(100)
+check("center click elsewhere does not page", a.cur.pg == 3 or a.cur.pg == 0, a.cur.pg)
+a.cur.view = 4; r.run(60)
+r.click(K_UP); r.run(60)
+check("changing view resets page", a.cur.pg == 0, a.cur.pg)
+# 完賽: 得分紀錄是第 3 頁 (v2), 第 5 頁 (v4) 是賽後戰績
+r.msg(k="score", i=0, lg="MLB", st="F", a="NYY", h="BOS", **{"in": 9, "as": 4, "hs": 2}, sp=sp,
+      sr={"t": "分區賽第3戰 洋基領先2-1", "r": [["戰績", "94-68", "89-73"], ["近十場", "7-3", "5-5"], ["連勝敗", "連勝3", "連敗1"], ["分區", "第1名", "第3名"]]}); r.run(30)
+check("mlb finished has 5 views", a.cur._nv() == 5, a.cur._nv())
+a.cur.view = 2; r.run(60)
+check("finished: plays page is paged", a.cur._paged())
+a.cur.view = 4; r.run(60)
+check("finished: record page is not paged (center is free)", not a.cur._paged())
+check("mlb finished title letter", a.cur.get_title().endswith("戰"), a.cur.get_title())
+# 籃球完賽 6 頁
+r.msg(k="games", l=[["NBA", "LAL", "GSW"]]); r.run(30)
+a.cur.sel = 0; a.cur.view = 0; a.cur._tell(); r.run(30)
+r.msg(k="score", i=0, lg="NBA", st="F", a="LAL", h="GSW", q=4, aq=[20, 25, 30, 28], hq=[22, 24, 26, 30], af=18, hf2=20, at=1, ht=0,
+      sr={"t": "本季交手 湖人領先2-1", "r": [["戰績", "50-32", "48-34"], ["近十場", "7-3", "6-4"], ["連勝敗", "連勝2", "連敗1"]]}, **{"as": 103, "hs": 102}); r.run(30)
+check("nba finished has 6 views", a.cur._nv() == 6, a.cur._nv())
+for v in range(6):
+    a.cur.view = v; r.run(60)
+check("nba record page draws", a.cur.view == 5)
+r.msg(k="score", i=0, lg="NBA", st="L", a="LAL", h="GSW", q=2, c="5:00", **{"as": 40, "hs": 41}); r.run(30)
+check("nba live still 5 views", a.cur._nv() == 5, a.cur._nv())
 
 # ---- 快捷鍵 (手機設定) ----
 import state as _S
@@ -522,4 +573,176 @@ for pid in ("home", "desk"):
     rb.run(4000)
     rb.app.lcd.show = orig
     check("%s redraws about twice per second (colon blink)" % pid, 6 <= n[0] <= 12, n[0])
+
+# ======================= 記憶體不足 (看完比賽後開說明書/手機狀態卡住) =======================
+import builtins, gc as _gcm, sys as _sys
+import registry as _reg
+
+class OomImport:
+    """讓指定模組的 import 失敗 n 次 (模擬 MicroPython 編譯時 MemoryError); n=None 表示一直失敗"""
+    def __init__(self, names, n):
+        self.names, self.n, self.hits = set(names), n, 0
+        self.orig = builtins.__import__
+    def __enter__(self):
+        me = self
+        def imp(name, *a, **k):
+            if name in me.names and name not in _sys.modules and (me.n is None or me.hits < me.n):
+                me.hits += 1
+                raise MemoryError("sim")
+            return me.orig(name, *a, **k)
+        builtins.__import__ = imp
+        return self
+    def __exit__(self, *e):
+        builtins.__import__ = self.orig
+
+def fresh():
+    for n in list(_sys.modules):                      # 頁面程式碼是全域快取: 每個情境都從「還沒載入」開始
+        if n.startswith(("p_", "g_")) and n not in ("p_home", "p_stopwatch", "p_music"):
+            _sys.modules.pop(n, None)
+    rr = Rig(); rr.msg(k="time", t=1791449340, z=480); rr.run(100); return rr
+
+# -- 1. 說明書檔案: 每頁行數與寬度 (改成檔案後不再有編譯期檢查)
+rr = fresh()
+txt = open("manual.txt", encoding="utf-8").read()
+pages_t = [b.split("\n") for b in txt.strip("\n").split("\n\n")]
+check("manual.txt has >= 20 pages", len(pages_t) >= 20, len(pages_t))
+badw = [(b[0], ln) for b in pages_t if b[1:] != ["@"] for ln in b[1:] if rr.canvas.text_w(ln) > 152]
+check("manual lines fit 152px", not badw, badw[:3])
+check("manual pages <= 5 lines", all(len(b) - 1 <= 5 for b in pages_t), [b[0] for b in pages_t if len(b) - 1 > 5])
+rr.app.go("manual", clock.now); rr.run(100)
+check("manual page count matches file", len(rr.app.cur.off) == len(pages_t), (len(rr.app.cur.off), len(pages_t)))
+for i in range(len(pages_t)):
+    rr.app.cur.i = i; rr.app.cur._ld = -1; rr.app.cur.dirty = True; rr.run(60)
+    exp = pages_t[i]
+    ok_ = rr.app.cur.lines == (exp[1:]) and rr.app.cur.name == exp[0]
+    if not ok_: break
+check("manual reads every page correctly from file", ok_, i)
+check("manual keeps only one page of text in memory", len(rr.app.cur.lines) <= 5)
+rr.app.go("home", clock.now); rr.run(60)
+check("manual unloaded when leaving", "manual" not in rr.app.insts and "p_manual" not in _sys.modules)
+
+# -- 2. 載入失敗 2 次 -> 逐級清理後第 3 次成功
+rr = fresh(); rr.app.go("menu", clock.now); rr.run(60)
+with OomImport(["p_manual"], 2) as o:
+    ok_ = rr.app.go("manual", clock.now)
+check("page load retried after cleanups and succeeded", ok_ and rr.app.cur_id == "manual" and o.hits == 2, (ok_, rr.app.cur_id, o.hits))
+
+# -- 3. 一直失敗: 不丟例外, 留在原頁, 有提示, 按鍵仍正常; 之後恢復就能開
+rr = fresh(); rr.app.go("menu", clock.now); rr.run(60)
+rr.app.go("music", clock.now); rr.app.go("menu", clock.now); rr.run(60)
+before = rr.app.mem_oom
+with OomImport(["p_manual", "p_sys"], None):
+    ok1 = rr.app.go("manual", clock.now)
+    ok2 = rr.app.go("sys", clock.now)
+check("failed page load returns False, no exception", ok1 is False and ok2 is False)
+check("stays on the menu after failure", rr.app.cur_id == "menu", rr.app.cur_id)
+check("OOM toast fits the screen", rr.canvas.text_w(rr.app._toast) + 12 <= 156, rr.canvas.text_w(rr.app._toast))
+check("failure shows a toast and is counted", rr.app._toast is not None and rr.app.mem_oom == before + 2, (rr.app._toast, rr.app.mem_oom))
+sel0 = rr.app.menu.sel
+rr.click(K_DOWN); rr.run(60)
+check("keys still work after failure (not stuck)", rr.app.menu.sel != sel0 or rr.app.cur_id == "menu")
+rr.app.menu.sel = [x[0] for x in rr.app.menu.items].index("manual") if hasattr(rr.app.menu, "items") else rr.app.menu.sel
+rr.click(K_CENTER); rr.run(100)
+check("after memory recovers the same press opens the page", rr.app.cur_id == "manual", rr.app.cur_id)
+
+# -- 4. 按鍵觸發的載入失敗 (中央鍵) 不會吃掉後續按鍵事件
+rr = fresh(); rr.app.go("menu", clock.now); rr.run(60)
+items = [x[0] for x in rr.app.menu.items]
+rr.app.menu.sel = items.index("sys")
+with OomImport(["p_sys"], None):
+    rr.click(K_CENTER); rr.run(100)
+    check("menu click with OOM: still on menu, alive", rr.app.cur_id == "menu")
+    rr.click(K_DOWN); rr.run(60)
+    rr.click(K_UP); rr.run(60)
+check("menu navigation works after OOM", rr.app.menu.sel == items.index("sys"), rr.app.menu.sel)
+rr.click(K_CENTER); rr.run(100)
+check("menu opens sys once memory is back", rr.app.cur_id == "sys", rr.app.cur_id)
+
+# -- 5. enter() 失敗: 回到原頁, 不留下半成品
+rr = fresh(); rr.app.go("menu", clock.now); rr.run(60)
+import p_manual as _pm
+orig_enter = _pm.ManualPage.enter
+state_ = {"n": 0}
+def bad_enter(self, now):
+    state_["n"] += 1
+    if state_["n"] == 1:
+        raise MemoryError("sim")
+    return orig_enter(self, now)
+_pm.ManualPage.enter = bad_enter
+ok_ = rr.app.go("manual", clock.now)
+check("enter() failure rolls back to previous page", ok_ is False and rr.app.cur_id == "menu" and "manual" not in rr.app.insts, (ok_, rr.app.cur_id, sorted(rr.app.insts)))
+ok_ = rr.app.go("manual", clock.now)
+_pm.ManualPage.enter = orig_enter
+check("second try after enter() failure works", ok_ and rr.app.cur_id == "manual")
+
+# -- 6. 剩餘記憶體偏低: 載入前先清理 (不等失敗)
+rr = fresh(); rr.app.go("music", clock.now); rr.app.go("menu", clock.now); rr.run(60)
+calls = []
+orig_rec = rr.app.reclaim
+rr.app.reclaim = lambda lv, keep=None: (calls.append(lv), orig_rec(lv, keep))[1]
+real_free = _gcm.mem_free
+_gcm.mem_free = lambda: 5000
+ok_ = rr.app.go("sys", clock.now)
+_gcm.mem_free = real_free
+check("low free memory triggers cleanup before loading", ok_ and calls[:1] == [1], calls)
+
+# -- 7. 看完各場比賽 (全部狀態) 再開說明書 / 手機狀態 / 系統總覽: 比分頁相關模組與頁面都要卸載乾淨
+rr = fresh(); rr.link.is_online = True
+rr.app.go("score", clock.now); rr.msg(k="games", l=[["MLB", "NYY", "BOS"], ["NBA", "LAL", "GSW"], ["SOC", "MCI", "LIV"]]); rr.run(100)
+spx = [[i // 2 + 1, i % 2, "Player", "HR", i, 0] for i in range(9)]
+msgs_ = [dict(k="score", i=0, lg="MLB", st="F", a="NYY", h="BOS", **{"in": 9, "as": 4, "hs": 2}, sp=spx, sr={"t": "x", "r": [["戰績", "1-1", "2-2"]]}),
+         dict(k="score", i=1, lg="NBA", st="F", a="LAL", h="GSW", q=4, aq=[1, 2, 3, 4], hq=[1, 2, 3, 4], **{"as": 103, "hs": 102}, sr={"t": "", "r": [["戰績", "1-1", "2-2"]]}),
+         dict(k="score", i=2, lg="SOC", st="F", a="MCI", h="LIV", ln="英超", sa=[1] * 12, sh=[2] * 12, **{"as": 2, "hs": 1}, sr={"t": "", "r": []})]
+for i, m in enumerate(msgs_):
+    rr.app.cur.sel = i; rr.app.cur._tell(); rr.msg(**m); rr.run(100)
+    for v in range(rr.app.cur._nv()):
+        rr.app.cur.view = v; rr.run(80)
+check("score page loaded sub modules", any(n.startswith("p_score") for n in _sys.modules))
+rr.app.go("menu", clock.now); rr.run(60)
+left = [n for n in _sys.modules if n.startswith("p_score")]
+check("leaving score unloads every p_score* module", not left, left)
+check("score full data trimmed to lite after leaving", all(len(v) <= 15 for v in rr.st.scores.values()), [len(v) for v in rr.st.scores.values()])
+for pid in ("manual", "sys", "dev", "msg", "act"):
+    ok_ = rr.app.go(pid, clock.now); rr.run(100)
+    check("open %s right after watching games" % pid, ok_ and rr.app.cur_id == pid)
+    rr.app.go("menu", clock.now); rr.run(60)
+extra = [k for k in rr.app.insts if k not in ("home", "sw", "music", "menu")]
+check("no leftover pages after browsing", not extra, extra)
+
+# -- 8. 逐級清理: 碼表計時中不能被丟掉; 比分資料可丟; 收發緩衝清掉
+rr = fresh(); rr.app.go("sw", clock.now); rr.run(60); rr.click(K_CENTER); rr.run(300)
+running = rr.st.sw_run
+rr.app.go("home", clock.now); rr.run(60)
+rr.app.go("games", clock.now); rr.app.go("menu", clock.now)
+rr.st.scores = {0: {"lg": "MLB"}}; rr.st.kk = {0: (1, 2)}
+rr.app.reclaim(3)
+check("reclaim(3) keeps stopwatch page + running state", "sw" in rr.app.insts and rr.st.sw_run == running)
+check("reclaim(2) drops score cache when not on score page", rr.st.scores == {} and rr.st.kk == {})
+check("reclaim clears link rx buffer", getattr(rr.link, "rx_drops", 0) >= 1)
+rr.app.go("score", clock.now); rr.msg(k="games", l=[["MLB", "NYY", "BOS"]]); rr.run(60)
+rr.st.scores = {0: {"lg": "MLB", "st": "L"}}
+rr.app.reclaim(2)
+check("reclaim keeps score cache while on the score page", rr.st.scores != {})
+
+# -- 9. 主迴圈: 例外從頁面深處丟出 MemoryError (draw/tick) 時 recover 不會當掉
+rr = fresh(); rr.app.go("score", clock.now); rr.run(60)
+for lv in (1, 2, 3):
+    f = rr.app.recover(lv)
+check("recover levels run without exception and end at home at level 3", rr.app.cur_id == "home", rr.app.cur_id)
+
+
+# -- 10. 預留的連續記憶體: 吃緊時放掉, 寬鬆時補回
+rr = fresh(); rr.run(100)
+check("reserve block allocated at boot", rr.app._rsv is not None and len(rr.app._rsv) == config.RESERVE)
+rr.app.reclaim(1)
+check("reclaim level 1 keeps reserve", rr.app._rsv is not None)
+rr.app.reclaim(2)
+check("reclaim level 2 releases reserve", rr.app._rsv is None)
+rr.run(3600)
+check("reserve re-acquired when memory is comfortable again", rr.app._rsv is not None)
+rr = fresh(); rr.app.go("menu", clock.now); rr.run(60)
+with OomImport(["p_manual"], 2):
+    rr.app.go("manual", clock.now)
+check("page load that needed level-2 cleanup released the reserve then restored it", rr.app.cur_id == "manual")
+
 print("\n%d failures" % len(fails)); sys.exit(1 if fails else 0)

@@ -175,6 +175,16 @@ class App:
         self.bad_msg = 0
         self.err_n = 0
         self.mem_min = gc.mem_free()
+        self._rsv = None                        # 預留一塊連續記憶體, 吃緊時放掉給編譯用; 拿不到也不能讓開機失敗
+        gc.collect()
+        n = RESERVE
+        while n >= 1024 and self._rsv is None:
+            try:
+                self._rsv = bytearray(n)
+            except MemoryError:
+                n //= 2
+        print("boot mem free", gc.mem_free(), "rsv", n if self._rsv else 0)
+        self.mem_oom = 0                      # 記憶體不足被攔下來的次數 (系統總覽可看)
         self._mem_t = now
         self._hello_conn = -1
         self._stat_t = now
@@ -189,12 +199,21 @@ class App:
             if info is None:
                 return None
             gc.collect()
-            try:
-                mod = __import__(info[2])
-            except MemoryError:
-                self._evict(pid)
-                mod = __import__(info[2])
-            p = getattr(mod, info[3])(self)
+            if gc.mem_free() < MEM_LOW:                # 剩下不多: 先清再載入, 不要等到載入一半失敗
+                self.reclaim(1, pid)
+            mod = None
+            for lv in (1, 2, 3):                       # 載入 (編譯) 時最吃記憶體: 失敗就一級一級清理後重試
+                try:
+                    mod = __import__(info[2])
+                    p = getattr(mod, info[3])(self)
+                    break
+                except MemoryError:
+                    sys.modules.pop(info[2], None)
+                    mod = p = None
+                    self.reclaim(lv, pid)
+            if p is None:
+                mod = __import__(info[2])               # 最後一次: 失敗就交給上層 (go 會顯示提示, 不會卡住)
+                p = getattr(mod, info[3])(self)
             p.id = pid
             if not p.title:
                 p.title = info[1]
@@ -212,16 +231,43 @@ class App:
                 del sys.modules[info[2]]
         gc.collect()
 
+    def reclaim(self, level, keep=None):
+        """逐級釋放記憶體 (都不重開機, 也不動到正在用的頁面):
+        1 卸載不在用的頁面與程式碼; 2 再丟掉比分暫存、收發緩衝與這頁的暫存; 3 連音樂頁也丟掉"""
+        if keep is None:
+            keep = self.cur_id
+        gc.collect()
+        self._evict(keep)
+        if level >= 2:
+            self._rsv = None                           # 放掉預留區: 這是此刻最大的一塊連續空間
+            if self.cur_id != "score":
+                self.st.drop_scores()                  # 比分資料進比分頁時手機會重送
+            self.link.drop_rx()
+            self.link._txq = []
+            if self.cur is not None:
+                try:
+                    self.cur.trim()
+                except MemoryError:
+                    pass
+        if level >= 3:
+            for pid in list(self.insts):
+                if pid not in (keep, self.cur_id, "menu", "home", "sw"):     # 碼表計時中, 不能丟
+                    self._drop(pid)
+        gc.collect()
+        gc.collect()
+        return gc.mem_free()
+
+    def _drop(self, pid):
+        self.insts.pop(pid, None)
+        info = registry.info(pid)
+        if info and info[2] in sys.modules:
+            del sys.modules[info[2]]
+
     def recover(self, level):
         """發生 MemoryError 後的逐級自救 (越來越狠, 但都不重開機): 1 整理+卸載別的頁面; 2 再丟掉這頁的子模組與暫存; 3 回首頁"""
         gc.collect()
         try:
-            self._evict(self.cur_id)
-            if level >= 2:
-                self.cur.trim()
-                self.link._rxbuf = bytearray()           # 收到一半的訊息一併丟棄 (手機會再同步)
-                self.link._txq = []
-            gc.collect()
+            self.reclaim(level)
             if level >= 3 and self.cur_id != "home":
                 self.go("home")
                 gc.collect()
@@ -255,24 +301,58 @@ class App:
         return b, f
 
     def go(self, pid, now=None):
+        """切換頁面。載入失敗 (記憶體不足) 時不會卡住也不會丟例外: 留在原本的頁面、清理記憶體並提示再按一次。回傳是否成功"""
         if now is None:
             now = time.ticks_ms()
-        p = self.page(pid)
+        try:
+            p = self.page(pid)
+        except MemoryError:
+            self.oom(now)
+            return False
         if p is None:
-            return
+            return False
+        old = self.cur
         old_id = self.cur_id
-        if self.cur is not None:
-            self.cur.leave()
+        if old is not None:
+            old.leave()
             if self.cur_id != "menu" and self.cur_id != pid:
                 self.prev_id = self.cur_id
         self.cur = p
         self.cur_id = pid
         self.keys.set_fast(p.fast)
         self._hk_keys()
-        p.enter(now)
+        try:
+            p.enter(now)
+        except MemoryError:                            # 進入時失敗: 回到原本的頁面
+            self.cur = old
+            self.cur_id = old_id
+            if old is not None:
+                self.keys.set_fast(old.fast)
+                self._hk_keys()
+                try:
+                    old.enter(now)
+                except MemoryError:
+                    pass
+            if pid != old_id:
+                self._drop(pid)
+            self.oom(now)
+            self._sig = None
+            return False
         self._sig = None
         if old_id and old_id != pid:
             self.unload(old_id)
+        return True
+
+    def oom(self, now=None):
+        """記憶體不足的善後: 清理到第 2 級, 提示使用者再按一次 (清完通常就夠了)"""
+        self.mem_oom += 1
+        try:
+            self.reclaim(2)
+        except MemoryError:
+            pass
+        self.toast("記憶體不足 已清理 請重按", 2200)
+        self._sig = None
+        self.cur.dirty = True
 
     def unload(self, pid):
         """卸載不常駐的頁面與其程式碼, 把記憶體還回去"""
@@ -482,7 +562,10 @@ class App:
                 if ev == EV_RELEASE or ev in (EV_CLICK, EV_DOUBLE, EV_TRIPLE):
                     self._swallow = -1
                 continue
-            self.handle(k, ev, now)
+            try:
+                self.handle(k, ev, now)
+            except MemoryError:                    # 這個按鍵失敗不要連累後面的事件 (否則放開鍵的事件被丟掉會卡住)
+                self.oom(now)
             if self.rebooting:
                 return
         # 手機訊息
@@ -539,6 +622,11 @@ class App:
         if time.ticks_diff(now, self._gc_t) > 3000:       # 定期整理記憶體, 避免碎片累積
             self._gc_t = now
             gc.collect()
+            if self._rsv is None and gc.mem_free() > MEM_LOW + RESERVE + 8000:
+                try:
+                    self._rsv = bytearray(RESERVE)     # 記憶體寬鬆了, 把預留區補回來
+                except MemoryError:
+                    pass
             self._gc_n += 1
             if self._gc_n % 10 == 0:
                 print("mem free", gc.mem_free(), "alloc", gc.mem_alloc())

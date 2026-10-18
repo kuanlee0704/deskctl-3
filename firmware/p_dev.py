@@ -158,7 +158,9 @@ class DevPage(Page):
         c.frect(6, 28, max(2, 148 * used // 100), 6, col)
         c.text("已用 " + kb(a), 6, 40, DIM)
         c.text_r("總共 " + kb(tot), 154, 40, DIM)
-        c.text("程式頁面 %d 個在記憶體中" % len(self.app.insts), 6, 52, DIM)
+        c.text("頁面 %d 個在記憶體" % len(self.app.insts), 6, 52, DIM)
+        if self.app.mem_oom:
+            c.text_r("擋下不足 %d 次" % self.app.mem_oom, 154, 52, WARN)
         ff = flash_free()
         c.text("最低 " + kb(self.app.mem_min), 6, 66, DIM)
         if (now // 3000) % 2 == 0 or ff is None:

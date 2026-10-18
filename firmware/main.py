@@ -48,6 +48,10 @@ def boot():
             time.sleep_ms(200)
             machine.reset()
     gc.collect()
+    try:
+        gc.threshold(GC_THRESHOLD)          # 每配置這麼多位元組就主動回收一次, 垃圾不會累積到記憶體見底才處理 (減少碎片)
+    except Exception:
+        pass
     print("mem free", gc.mem_free(), "alloc", gc.mem_alloc())
     return app, lcd, c
 

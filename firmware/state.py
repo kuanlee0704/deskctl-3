@@ -192,6 +192,14 @@ class State:
                 self.scores[j] = lite(self.scores[j])
         gc.collect()
 
+    def drop_scores(self):
+        """丟掉全部比分暫存 (記憶體吃緊時); 再進比分頁或換場時, 手機會把該場資料重送一次"""
+        self.scores = {}
+        self.score_t = {}
+        self.clk_t = {}
+        self.buf_t = {}
+        self.kk = {}
+
     def unread(self):
         n = 0
         for x in self.msgs:

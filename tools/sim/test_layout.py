@@ -331,6 +331,19 @@ for bs in (0, 1, 2, 4, 7):
         r.app.cur.sel = 0
         for v in (0, 1, 2, 3, 4):
             r.app.cur.view = v; snap(r, "mlb bs=%d st=%s v=%d" % (bs, st, v))
+SR_MLB = {"t": "系列賽第2/3場 洋基2-0 · 本季交手 洋基4-2", "r": [["戰績", "94-68", "89-73"], ["近十場", "10-0", "10-0"], ["連勝敗", "連勝12", "連敗12"], ["分區", "第1名", "第3名"]]}
+for sr in (SR_MLB, dict(SR_MLB, t=""), dict(SR_MLB, t="分區賽第3戰 洋基領先2-1"), {"t": "世界大賽第7戰 道奇晉級4-3", "r": [["戰績", "100-62", "100-62"]]}, {"t": "", "r": []}):
+    r.msg(**dict(base_live, st="F", sr=sr)); r.run(50)
+    r.app.cur.sel = 0; r.app.cur.view = 4; snap(r, "mlb record t=%d rows=%d" % (len(sr["t"]), len(sr["r"])))
+r.msg(**dict(base_live, st="F", sr=None)); r.run(50); r.app.cur.view = 4; snap(r, "mlb record none")
+for nsp in (1, 4, 5, 7, 9):
+    sp_ = [[i // 2 + 1, i % 2, "S. Ohtani-LongName", "HR", i, 0, 1] for i in range(nsp)]
+    for st in ("L", "F"):
+        for pg in (0, 1, 2):
+            r.msg(**dict(base_live, st=st, sp=sp_)); r.run(50)
+            r.app.cur.sel = 0; r.app.cur.pg = pg; r.app.cur.view = 4 if st == "L" else 2
+            snap(r, "mlb plays n=%d st=%s pg=%d" % (nsp, st, pg))
+r.app.cur.pg = 0
 for ai, hi in (([], []), ([0] * 9, [0] * 8), ([1] * 12, [2] * 11)):
     r.msg(**dict(base_live, ai=ai, hi=hi, st="L")); r.run(50)
     for v in (0, 1, 2, 3, 4):
@@ -350,6 +363,11 @@ for q, cs_ in ((1, 7200), (2, 3320), (4, 453), (5, 187), (7, 8), (3, 12345)):
         r.app.cur.sel = 1
         for v in (0, 1, 2, 3, 4):
             r.app.cur.view = v; snap(r, "nba q=%d st=%s v=%d" % (q, st, v))
+for sr in ({"t": "系列賽 湖人領先2-1", "r": [["戰績", "50-32", "48-34"], ["近十場", "7-3", "6-4"], ["連勝敗", "連勝12", "連敗12"], ["客/主場", "25-16", "23-18"]]},
+           {"t": "", "r": [["戰績", "50-32", "48-34"], ["近十場", "7-3", "6-4"], ["連勝敗", "連勝2", "連敗1"], ["客/主場", "25-16", "23-18"]]},
+           {"t": "本季交手 金州勇士晉級4-3-很長的文字測試", "r": [["戰績", "50-32", "48-34"]]}, {"t": "", "r": []}):
+    r.msg(**dict(bk, st="F", sr=sr)); r.run(50)
+    r.app.cur.sel = 1; r.app.cur.view = 5; snap(r, "nba record t=%d rows=%d" % (len(sr["t"]), len(sr["r"])))
 for qq in (1, 2, 4, 5):
     r.msg(**dict(bk, brk=1, st="L", q=qq, c="")); r.run(50); r.app.cur.view = 0; snap(r, "nba break q=%d" % qq)
 for kt_, ks_ in ((0, 2), (1, 3), (0, 1)):
@@ -405,6 +423,27 @@ soc = dict(k="score", i=0, lg="SOC", st="L", a="MCI", h="LIV", ln="國際友誼�
 r.msg(**soc); r.run(50)
 for v in range(4):
     r.app.cur.view = v; snap(r, "soc live v=%d" % v)
+SA12 = [55, 14, 6, 7, 10, 2, 1, 1, 1234, 88, 12, 33]
+SH12 = [45, 9, 3, 4, 12, 1, 3, 0, 98, 100, 0, 5]
+GI = dict(gv="Estadio Santiago Bernabéu - Madrid", gr="Szymon Marciniak", ga="81,044", fa="4-2-3-1", fh="3-4-2-1", gw="Partly Cloudy 18°")
+r.msg(**dict(soc, sa=SA12, sh=SH12, **GI)); r.run(50)
+for v in range(6):
+    r.app.cur.view = v; snap(r, "soc12 live v=%d" % v)
+r.msg(**dict(soc, sa=SA12, sh=SH12, gv="Anfield")); r.run(50)
+r.app.cur.view = 5; snap(r, "soc info venue only")
+r.msg(**dict(soc, sa=SA12, sh=SH12, fa="4-4-2")); r.run(50)
+r.app.cur.view = 5; snap(r, "soc info formation only")
+r.msg(**dict(soc, sa=SA12, sh=SH12)); r.run(50)
+r.app.cur.view = 5; snap(r, "soc info empty")
+for ln in ("英超", "友誼賽", "歐國聯", "世界盃"):
+    r.msg(**dict(soc, ln=ln, st="F", sa=SA12, sh=SH12, **GI)); r.run(50)
+    r.app.cur.view = 0; snap(r, "soc final ln=%s" % ln)
+    r.msg(**dict(soc, ln=ln, st="P")); r.run(50)
+    r.app.cur.view = 0; snap(r, "soc pre ln=%s" % ln)
+for sr in ({"t": "", "r": [["排名", "第10名", "第18名"], ["積分", "100", "100"], ["勝平負", "30-10-20", "30-10-20"], ["得失球", "+100", "-100"]]}, {"t": "", "r": []}, None):
+    r.msg(**dict(soc, st="F", sa=SA12, sh=SH12, sr=sr)); r.run(50)
+    r.app.cur.view = 6; snap(r, "soc record %s" % ("none" if sr is None else len(sr["r"])))
+r.msg(**dict(soc, st="L")); r.run(50)
 r.msg(**dict(soc, c="HT", sa=None, sh=None, ev=None)); r.run(50)
 for v in range(4):
     r.app.cur.view = v; snap(r, "soc noext v=%d" % v)

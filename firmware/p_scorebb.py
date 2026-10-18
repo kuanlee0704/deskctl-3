@@ -1,5 +1,5 @@
 """比分板: 棒球畫面 (獨立檔案, 需要時才載入以節省記憶體)
-v0 主畫面  v1 細節(每局得分 / 賽後勝敗)  v2 即時  v3 戰績與打序  (未開賽 v1 = 先發投手)"""
+v0 主畫面  v1 細節(每局得分 / 賽後勝敗)  v2 即時  v3 戰績與打序  v4 得分紀錄  (完賽: v2 得分紀錄 v3 打點全壘打 v4 賽後戰績; 未開賽 v1 = 先發投手)"""
 from ui import *
 from p_scoret import bases, row, teams, pre_final, foot, bline
 
@@ -21,6 +21,13 @@ def draw(p, c, sc, v, g):
         detail(p, c, sc)
     else:
         # 進行中: 2 即時 3 戰績打序 4 得分紀錄;  完賽: 2 得分紀錄 3 打點與全壘打
+        if st == "F" and v == 4:                       # 完賽第 5 頁: 兩隊戰績 / 系列賽
+            m = p._sub("p_scorerec")
+            if m is None:
+                c.text("記憶體不足, 稍後重試", 6, 30, WARN)
+            else:
+                m.rec(p, c, sc)
+            return
         sp = (v == 4) if st == "L" else (v in (2, 3))
         m = p._sub("p_scoresp" if sp else "p_scorelv")
         if m is None:

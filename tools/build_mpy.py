@@ -30,8 +30,8 @@ for f in sorted(os.listdir(src)):
             sys.exit("編譯失敗 %s:\n%s" % (f, r.stderr))
         print("%-16s %6d -> %6d bytes" % (f, os.path.getsize(p), os.path.getsize(o)))
         n_mpy += 1
-    elif f.endswith((".py", ".bin")):
+    elif f.endswith((".py", ".bin", ".txt")):
         shutil.copy(p, os.path.join(out, f))
         n_py += 1
-print("完成: %d 個 .mpy, %d 個原樣複製 (.py/.bin) -> %s" % (n_mpy, n_py, os.path.normpath(out)))
+print("完成: %d 個 .mpy, %d 個原樣複製 (.py/.bin/.txt) -> %s" % (n_mpy, n_py, os.path.normpath(out)))
 print("上傳前請先在板子上刪掉同名的 .py, 否則會優先載入舊的 .py!")

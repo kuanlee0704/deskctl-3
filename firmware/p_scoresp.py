@@ -3,16 +3,14 @@ from ui import *
 
 
 def plays(p, c, sc):
-    """得分紀錄: 每個得分打席一列 (局上下, 打者, 結果, 當時比分); 超過 4 筆每 3 秒換頁"""
+    """得分紀錄: 每個得分打席一列 (局上下, 打者, 結果, 當時比分); 超過 4 筆分頁, 按中央鍵翻下一頁"""
     sp = sc.get("sp") or []
     if not sp:
         c.text("尚無得分", 6, 34, DIM)
         return
     n = len(sp)
-    pg = 0
-    if n > 4:
-        pg = (p._now // 3000) % ((n + 3) // 4)
-        p._anim = True
+    pages = (n + 3) // 4
+    pg = p.pg % pages                   # 按中央鍵翻下一頁 (不會自己翻)
     for k in range(4):
         i = pg * 4 + k
         if i >= n:
@@ -26,8 +24,9 @@ def plays(p, c, sc):
         c.text_r(ev, x, y, GOOD if ev in ("HR", "1B", "2B", "3B") else DIM)
         w = x - c.text_w(ev) - 4 - 30
         c.text(clip_text(c, e[2] or "", w), 30, y, FG)
-    if n > 4:
-        c.text_r("%d/%d" % (pg + 1, (n + 3) // 4), 158, 67, FAINT)
+    if pages > 1:
+        c.text("中央:下一頁", 2, 67, FAINT)
+        c.text_r("%d/%d" % (pg + 1, pages), 158, 67, DIM)
 
 
 def stars(p, c, sc):

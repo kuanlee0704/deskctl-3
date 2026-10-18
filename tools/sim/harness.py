@@ -60,6 +60,7 @@ class FakeLink:
     def send(self, d):
         self.sent.append(d); return True
     def pump(self): pass
+    def drop_rx(self): self.rx_drops = getattr(self, "rx_drops", 0) + 1
     def disconnect(self): self.sent.append("disconnect")
 
 

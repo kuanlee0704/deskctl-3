@@ -18,6 +18,7 @@ class ScorePage(Page):
         Page.__init__(self, app)
         self.sel = 0
         self.view = 0
+        self.pg = 0               # 棒球得分紀錄的頁碼 (按中央鍵翻頁)
         self.lx = 70
         self.rx = 78
         self._now = 0
@@ -113,7 +114,7 @@ class ScorePage(Page):
         return self.st.scores.get(self.sel)
 
     def _nv(self):
-        """目前這場比賽有幾個畫面 (MLB 進行中 5 / 完賽 4 / 未開賽 2; NBA 開賽後 5; 其他 2)"""
+        """目前這場比賽有幾個畫面 (MLB 進行中 5 / 完賽 5 / 未開賽 2; NBA 進行中 5 / 完賽 6; 足球進行中 6 / 完賽 7; 其他 2)"""
         sc = self._sc()
         n = len(self.st.games)
         if not sc or not n:
@@ -121,12 +122,22 @@ class ScorePage(Page):
         lg = self.st.games[min(self.sel, n - 1)][0]
         s = sc.get("st")
         if lg == "MLB":
-            return 5 if s == "L" else (4 if s == "F" else 2)
+            return 5 if s in ("L", "F") else 2
         if lg == "CPBL":
             return 1 if s == "P" else 2
         if lg == "SOC":
-            return 1 if s == "P" else 4
-        return 1 if s == "P" else 5
+            return 1 if s == "P" else (7 if s == "F" else 6)
+        return 1 if s == "P" else (6 if s == "F" else 5)
+
+    def _paged(self):
+        """目前畫面是不是棒球「得分紀錄」(進行中第 5 頁 / 完賽第 3 頁): 這頁的中央鍵用來翻頁"""
+        sc = self._sc()
+        n = len(self.st.games)
+        if not sc or not n or self.st.games[min(self.sel, n - 1)][0] != "MLB":
+            return False
+        v = self._v()
+        s = sc.get("st")
+        return (s == "L" and v == 4) or (s == "F" and v == 2)
 
     def _v(self):
         return self.view if self.view < self._nv() else 0
@@ -151,17 +162,20 @@ class ScorePage(Page):
         v = self._v()
         sc = self._sc()
         vl = ""
+        g = self.st.games[min(self.sel, n - 1)]
+        nm = g[0]
+        if sc and g[0] == "SOC" and sc.get("ln"):
+            nm = sc["ln"]                               # 足球標題顯示聯賽名稱 (英超/歐冠...)
         if v:
-            lg = self.st.games[min(self.sel, n - 1)][0]
             s = sc.get("st") if sc else None
-            if lg == "SOC":
-                lab = " 球統計"
-            elif lg == "MLB":
-                lab = {"L": " 詳即戰得", "F": " 詳得星", "P": " 詳先"}.get(s, " 詳")
+            if g[0] == "SOC":
+                lab = " 球統計傳場戰"
+            elif g[0] == "MLB":
+                lab = {"L": " 詳即戰得", "F": " 詳得星戰", "P": " 詳先"}.get(s, " 詳")
             else:
-                lab = " 詳投助員"
+                lab = " 詳投助員戰" if s == "F" else " 詳投助員"
             vl = lab[v] if v < len(lab) else ""
-        return "%s%d/%d%s" % (self.st.games[min(self.sel, n - 1)][0], self.sel + 1, n, vl)
+        return "%s%d/%d%s" % (nm, self.sel + 1, n, vl)
 
     # ---------- 籃球計時器: 手機每幾秒給一次剩餘時間, 中間在這裡往下推算 ----------
     def clk(self, sc, now):
@@ -249,15 +263,20 @@ class ScorePage(Page):
             if ev == EV_CLICK:
                 self.sel = (self.sel + (1 if k == K_RIGHT else -1)) % n
                 self.view = 0                      # 換場次一律回主頁
+                self.pg = 0
                 self._mqs = {}
                 self._tell()
                 return True
             if ev in (EV_PRESS, EV_RELEASE, EV_DOUBLE, EV_TRIPLE, EV_LONG, EV_HOLD):
                 return True
+        if k == K_CENTER and ev == EV_CLICK and self._paged():
+            self.pg += 1                           # 得分紀錄: 中央鍵翻下一頁
+            return True
         if k in (K_UP, K_DOWN):
             if ev == EV_CLICK:
                 nv = self._nv()
                 self.view = (self._v() + (1 if k == K_UP else -1)) % nv
+                self.pg = 0
                 self._mqs = {}
                 return True
             return ev in (EV_PRESS, EV_RELEASE, EV_DOUBLE, EV_TRIPLE, EV_LONG, EV_HOLD)

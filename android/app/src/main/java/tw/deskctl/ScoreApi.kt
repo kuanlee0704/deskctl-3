@@ -147,7 +147,7 @@ object ScoreApi {
             val o = when (t.lg) {
                 "NBA" -> fetchNba(t, detail && idx == sel)
                 "CPBL" -> fetchCpbl(t)
-                "SOC" -> ScoreSoccer.fetch(t)
+                "SOC" -> ScoreSoccer.fetch(t, detail && idx == sel)
                 else -> null
             } ?: continue
             out[idx] = o.put("k", "score").put("i", idx)
@@ -214,7 +214,7 @@ object ScoreApi {
 
     private fun fetchMlb(ts: List<Tracked>, selId: String): Map<String, JSONObject> {
         val ids = ts.joinToString(",") { it.id }
-        val games = mlbGames("https://statsapi.mlb.com/api/v1/schedule?sportId=1&gamePks=$ids&hydrate=team,linescore,decisions,probablePitcher")
+        val games = mlbGames("https://statsapi.mlb.com/api/v1/schedule?sportId=1&gamePks=$ids&hydrate=team,linescore,decisions,probablePitcher,seriesStatus")
         val out = HashMap<String, JSONObject>()
         for (g in games) {
             try {
@@ -271,6 +271,7 @@ object ScoreApi {
                         ls.optJSONObject("defense")?.optJSONObject("pitcher")?.optString("fullName")?.let { o.put("pt", lastName(it)) }
                     }
                     if (id == selId && (st == "L" || st == "F")) mlbFeed(id, o, st == "L" && !mid, st == "F")
+                    if (id == selId && st == "F") ScoreRecord.mlb(g, t, o)          // 賽後戰績頁: 兩隊成績 + 系列賽
                     val lt = ls.optJSONObject("teams")
                     o.put("ah", lt?.optJSONObject("away")?.optInt("hits") ?: 0).put("hh", lt?.optJSONObject("home")?.optInt("hits") ?: 0)
                     o.put("ae", lt?.optJSONObject("away")?.optInt("errors") ?: 0).put("he", lt?.optJSONObject("home")?.optInt("errors") ?: 0)
@@ -564,7 +565,7 @@ object ScoreApi {
 
     private val nbaAlias = mapOf("GS" to "GSW", "NY" to "NYK", "NO" to "NOP", "SA" to "SAS", "UTAH" to "UTA", "WSH" to "WAS", "PHO" to "PHX", "BKN" to "BKN", "CHA" to "CHA")
 
-    private fun nbaKey(t: String): String = nbaAlias[t.uppercase()] ?: t.uppercase()
+    internal fun nbaKey(t: String): String = nbaAlias[t.uppercase()] ?: t.uppercase()
 
     private fun espnDate(ms: Long): String = Instant.ofEpochMilli(ms).atZone(ET).format(DateTimeFormatter.BASIC_ISO_DATE)
 
@@ -580,7 +581,7 @@ object ScoreApi {
         return out
     }
 
-    private fun espnComp(ev: JSONObject, home: Boolean): JSONObject? {
+    internal fun espnComp(ev: JSONObject, home: Boolean): JSONObject? {
         val cs = ev.optJSONArray("competitions")?.optJSONObject(0)?.optJSONArray("competitors") ?: return null
         for (i in 0 until cs.length()) {
             val c = cs.getJSONObject(i)
@@ -805,6 +806,7 @@ object ScoreApi {
             if (full && st != "P") {
                 nbaExtra(at, ht, o)
                 if (st == "L") nbaLastScore(t, o)
+                if (st == "F") ScoreRecord.nba(t, o)                  // 賽後戰績頁
             }
             return o
         } catch (e: Exception) {
@@ -814,7 +816,7 @@ object ScoreApi {
     }
 
     /** 在開賽日前後各一天的 ESPN 賽程裡找這場比賽 (ESPN 的日期分界和台灣/美東都不太一樣) */
-    private fun findEspn(t: Tracked): JSONObject? {
+    internal fun findEspn(t: Tracked): JSONObject? {
         val d0 = Instant.ofEpochMilli(if (t.startMs > 0) t.startMs else System.currentTimeMillis()).atZone(ET).toLocalDate()
         val key = nbaKey(t.a) + nbaKey(t.h)
         for (d in listOf(d0, d0.minusDays(1), d0.plusDays(1))) {
@@ -865,12 +867,13 @@ object ScoreApi {
                 val r = espnLast(sum)
                 nbaLastFinish(t, o, r?.first ?: -1, r?.second ?: 0, r?.third ?: "")
             }
+            if (st == "F") ScoreRecord.nba(t, o, ev)
         }
         return o
     }
 
     /** ESPN 單場摘要 (一次請求同時取得逐球紀錄與 boxscore) */
-    private fun espnSummary(evId: String): JSONObject? {
+    internal fun espnSummary(evId: String): JSONObject? {
         if (evId.isEmpty()) return null
         val txt = http("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=$evId") ?: return null
         return try {

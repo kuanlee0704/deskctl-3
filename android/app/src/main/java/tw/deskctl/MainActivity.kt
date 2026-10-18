@@ -40,6 +40,8 @@ import androidx.core.content.ContextCompat
 class MainActivity : Activity() {
 
     private companion object {
+        const val REQ_EXPORT = 901
+        const val REQ_IMPORT = 902
         const val C_BG = 0xFFF2F4F7.toInt()
         const val C_CARD = 0xFFFFFFFF.toInt()
         const val C_PRIMARY = 0xFF1565C0.toInt()
@@ -638,6 +640,38 @@ class MainActivity : Activity() {
             refresh()
         }
 
+        // ---- 備份與還原 ----
+        val bk = card(col)
+        text(bk, "備份與還原設定", 16f, C_TEXT, true)
+        text(bk, "把所有設定 (追蹤的比賽、快捷鍵、球隊名、目錄…) 存成一個檔案。必須解除安裝重裝時, 裝好後按「從檔案還原」就全部回來。", 12f, C_SUB)
+        val cbSecret = android.widget.CheckBox(this)
+        cbSecret.text = "同時備份 AI 金鑰 (機密, 檔案請妥善保管)"
+        bk.addView(cbSecret, LinearLayout.LayoutParams(-1, -2))
+        button(bk, "匯出到檔案", true) {
+            backupSecret = cbSecret.isChecked
+            val i = Intent(Intent.ACTION_CREATE_DOCUMENT)
+            i.addCategory(Intent.CATEGORY_OPENABLE)
+            i.type = "application/json"
+            i.putExtra(Intent.EXTRA_TITLE, "deskctl-settings.json")
+            try { startActivityForResult(i, REQ_EXPORT) } catch (_: Exception) { toast("無法開啟檔案選擇器, 請改用「複製到剪貼簿」") }
+        }
+        button(bk, "從檔案還原") {
+            val i = Intent(Intent.ACTION_OPEN_DOCUMENT)
+            i.addCategory(Intent.CATEGORY_OPENABLE)
+            i.type = "*/*"
+            try { startActivityForResult(i, REQ_IMPORT) } catch (_: Exception) { toast("無法開啟檔案選擇器, 請改用「從剪貼簿還原」") }
+        }
+        button(bk, "複製到剪貼簿") {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("deskctl-settings", SettingsBackup.export(this, cbSecret.isChecked)))
+            toast("已複製, 可貼到雲端筆記或傳給自己")
+        }
+        button(bk, "從剪貼簿還原") {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val t = cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString() ?: ""
+            applyImport(t)
+        }
+
         // ---- 關於 ----
         val about = card(col)
         text(about, "關於", 16f, C_TEXT, true)
@@ -648,6 +682,9 @@ class MainActivity : Activity() {
         }
         text(about, "桌邊控制器 App v$ver", 14f, C_SUB)
         text(about, "已載入功能: " + Features.registry.joinToString("、") { it.title }, 14f, C_SUB)
+        val sig = SettingsBackup.signatureSha256(this)
+        text(about, "簽章指紋: " + (sig?.take(23) ?: "無法取得"), 12f, C_GREY)
+        text(about, "每次更新的指紋必須相同才能直接覆蓋安裝; 若不同 (或更新時說「與現有套件衝突」), 先到上方「備份與還原」匯出設定。", 12f, C_GREY)
         text(about, "新增功能的方法見 README「手機 App 新增功能」", 12f, C_GREY)
         // 設定項目多: 除了「初次設定」(自己會展開收合), 其他卡片預設收合, 點標題展開
         for (ci in 2 until col.childCount) {
@@ -660,6 +697,40 @@ class MainActivity : Activity() {
     private val foldOpen = HashMap<Int, Boolean>()
 
     /** 把卡片第一個子元件 (標題) 變成可點的摺疊標頭, 其餘內容依狀態顯示或隱藏 */
+    private var backupSecret = false
+
+    private fun toast(m: String) = Toast.makeText(this, m, Toast.LENGTH_LONG).show()
+
+    private fun applyImport(text: String) {
+        val n = SettingsBackup.import(this, text)
+        if (n < 0) { toast("這不是有效的設定備份"); return }
+        Teams.loadCustom(this)
+        ScoreStore.version++
+        HotkeyStore.version++
+        BoardCfg.version++
+        if (BridgeService.running) startSvc(BridgeService.ACTION_SYNC)
+        toast("已還原 $n 項設定")
+        recreate()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(req: Int, res: Int, data: Intent?) {
+        super.onActivityResult(req, res, data)
+        val uri = data?.data
+        if (res != RESULT_OK || uri == null) return
+        try {
+            if (req == REQ_EXPORT) {
+                contentResolver.openOutputStream(uri, "wt")!!.use { it.write(SettingsBackup.export(this, backupSecret).toByteArray(Charsets.UTF_8)) }
+                toast("已匯出")
+            } else if (req == REQ_IMPORT) {
+                val t = contentResolver.openInputStream(uri)!!.use { String(it.readBytes(), Charsets.UTF_8) }
+                applyImport(t)
+            }
+        } catch (e: Exception) {
+            toast("失敗: ${e.message}")
+        }
+    }
+
     private fun foldCard(c: LinearLayout, key: Int, openDefault: Boolean) {
         val title = c.getChildAt(0) as? TextView ?: return
         c.removeViewAt(0)

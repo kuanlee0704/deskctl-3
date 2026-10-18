@@ -10,8 +10,8 @@ android {
         applicationId = "tw.deskctl"
         minSdk = 26
         targetSdk = 34
-        versionCode = 36
-        versionName = "1.14.1"
+        versionCode = 38
+        versionName = "1.16.0"
     }
     // 固定的除錯簽章: 每次 GitHub Actions 打包出來的 APK 簽章相同, 才能直接「覆蓋安裝」並保留設定
     signingConfigs {

@@ -16,7 +16,7 @@ object ScoreSoccer {
     val LEAGUES = listOf(
         "eng.1" to "英超", "esp.1" to "西甲", "ger.1" to "德甲", "ita.1" to "義甲", "fra.1" to "法甲",
         "uefa.champions" to "歐冠", "uefa.europa" to "歐霸", "usa.1" to "美職", "fifa.world" to "世界盃",
-        "uefa.euro" to "歐國盃", "fifa.friendly" to "國際友誼賽", "jpn.1" to "日職", "ned.1" to "荷甲",
+        "uefa.euro" to "歐國盃", "fifa.friendly" to "友誼賽", "jpn.1" to "日職", "ned.1" to "荷甲",
         "por.1" to "葡超", "eng.2" to "英冠", "uefa.nations" to "歐國聯"
     )
     const val DEFAULT = "eng.1,uefa.champions"
@@ -100,8 +100,51 @@ object ScoreSoccer {
 
     private fun num(s: String): Int = Math.round(s.replace("%", "").trim().toDoubleOrNull() ?: 0.0).toInt()
 
+    /** 場地資訊: 場館 gv / 裁判 gr / 觀眾 ga / 天氣 gw / 雙方陣型 fa fh (有哪個放哪個) */
+    private fun gameInfo(sum: JSONObject, awayId: String, o: JSONObject) {
+        try {
+            val gi = sum.optJSONObject("gameInfo")
+            if (gi != null) {
+                gi.optJSONObject("venue")?.optString("fullName")?.takeIf { it.isNotEmpty() }?.let { o.put("gv", it.take(40)) }
+                val offs = gi.optJSONArray("officials")
+                if (offs != null && offs.length() > 0) {
+                    var nm = ""
+                    for (i in 0 until offs.length()) {
+                        val x = offs.optJSONObject(i) ?: continue
+                        val pos = (x.optJSONObject("position")?.optString("name") ?: x.optString("position")).lowercase()
+                        if (pos.contains("referee") && !pos.contains("assistant") && !pos.contains("video") && !pos.contains("fourth")) {
+                            nm = x.optString("displayName").ifEmpty { x.optString("fullName") }
+                            break
+                        }
+                    }
+                    if (nm.isEmpty()) nm = offs.optJSONObject(0)?.optString("displayName").orEmpty()
+                    if (nm.isNotEmpty()) o.put("gr", nm.take(28))
+                }
+                val att = gi.optInt("attendance", 0)
+                if (att > 0) o.put("ga", String.format("%,d", att))
+                val w = gi.optJSONObject("weather")
+                if (w != null) {
+                    val d = w.optString("displayValue")
+                    val tp = if (w.has("temperature")) w.optInt("temperature").toString() + "°" else ""
+                    val txt = (d + " " + tp).trim()
+                    if (txt.isNotEmpty()) o.put("gw", txt.take(30))
+                }
+            }
+            val ro = sum.optJSONArray("rosters")
+            if (ro != null) for (i in 0 until ro.length()) {
+                val x = ro.optJSONObject(i) ?: continue
+                val f = x.optString("formation")
+                if (f.isEmpty()) continue
+                val tid = x.optJSONObject("team")?.optString("id").orEmpty()
+                o.put(if (tid == awayId) "fa" else "fh", f.take(10))
+            }
+        } catch (e: Exception) {
+            AppLog.w("SCORE", "足球場地資訊解析失敗: $e")
+        }
+    }
+
     /** 單場資料 → 控制器用的 JSON; 失敗回傳 null */
-    fun fetch(t: Tracked): JSONObject? {
+    fun fetch(t: Tracked, full: Boolean = false): JSONObject? {
         val slug = t.id.substringBefore(':')
         val eid = t.id.substringAfter(':')
         val txt = ScoreApi.http(BASE + slug + "/summary?event=" + eid) ?: return null
@@ -172,9 +215,14 @@ object ScoreSoccer {
                         for (x in k) m[x]?.let { return num(it) }
                         return 0
                     }
+                    // 傳球率: ESPN 有時給 0.85, 有時給 85 / "85%", 統一成 0~100
+                    var pp = (m["passPct"] ?: "0").replace("%", "").trim().toDoubleOrNull() ?: 0.0
+                    if (pp in 0.0001..1.0) pp *= 100.0
                     return JSONArray().put(g("possessionPct")).put(g("totalShots", "shots")).put(g("shotsOnTarget"))
                         .put(g("wonCorners", "cornerKicks")).put(g("foulsCommitted", "fouls")).put(g("offsides"))
                         .put(g("yellowCards")).put(g("redCards"))
+                        .put(g("totalPasses", "accuratePasses")).put(Math.round(pp).toInt())
+                        .put(g("saves")).put(g("totalTackles", "effectiveTackles"))
                 }
                 var ta: JSONObject? = null
                 var th: JSONObject? = null
@@ -184,6 +232,8 @@ object ScoreSoccer {
                 }
                 if (ta != null && th != null) o.put("sa", arr(ta)).put("sh", arr(th))
             }
+            gameInfo(sum, awayId, o)
+            if (full && st == "F") ScoreRecord.soccer(slug, t, a, h, o)      // 賽後積分榜
             return o
         } catch (e: Exception) {
             AppLog.w("SCORE", "足球資料解析失敗: $e")

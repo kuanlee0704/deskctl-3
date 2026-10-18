@@ -12,9 +12,11 @@ def draw(p, c, sc, v, g):
     elif v == 1:
         detail(p, c, sc)
     else:
-        m = p._sub("p_scoresk")                 # 2 投籃等數據  3 助攻等數據  4 球員與最近得分
+        m = p._sub("p_scorerec" if v == 5 else "p_scoresk")     # 2 投籃等數據  3 助攻等數據  4 球員與最近得分  5 賽後戰績
         if m is None:
             c.text("記憶體不足, 稍後重試", 6, 30, WARN)
+        elif v == 5:
+            m.rec(p, c, sc)
         elif v == 4:
             m.leaders(p, c, sc)
         else:
