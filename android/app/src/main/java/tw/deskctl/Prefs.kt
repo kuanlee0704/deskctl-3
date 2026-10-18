@@ -93,6 +93,26 @@ object Prefs {
     fun scoreTracked(c: Context): String = sp(c).getString("score_tracked", "[]") ?: "[]"
     fun setScoreTracked(c: Context, v: String) { sp(c).edit().putString("score_tracked", v).apply() }
 
+    /** 控制器快捷鍵 (JSON, 格式見 HotkeyStore.kt); touched = 使用者在手機上改過 (沒改過就採用控制器上的) */
+    fun hotkeys(c: Context): String = sp(c).getString("hotkeys", "[]") ?: "[]"
+    fun setHotkeys(c: Context, v: String) { sp(c).edit().putString("hotkeys", v).apply() }
+    fun hkTouched(c: Context): Boolean = sp(c).getBoolean("hk_touched", false)
+    fun setHkTouched(c: Context, v: Boolean) { sp(c).edit().putBoolean("hk_touched", v).apply() }
+
+    /** 球隊自訂中文名 (JSON 物件, 鍵 = "聯盟:代號") 與控制器隊名語言 (false = 中文優先, true = 英文) */
+    fun teamNames(c: Context): String = sp(c).getString("team_names", "{}") ?: "{}"
+    fun setTeamNames(c: Context, v: String) { sp(c).edit().putString("team_names", v).apply() }
+    fun teamEnglish(c: Context): Boolean = sp(c).getBoolean("team_english", false)
+    fun setTeamEnglish(c: Context, v: Boolean) { sp(c).edit().putBoolean("team_english", v).apply() }
+
+    /** AI 助理 (Gemini): 金鑰只存在手機本機, 只會送給 Google; 模型名稱可改; 是否允許助理上網搜尋 */
+    fun aiKey(c: Context): String = sp(c).getString("ai_key", "") ?: ""
+    fun setAiKey(c: Context, v: String) { sp(c).edit().putString("ai_key", v.trim()).apply() }
+    fun aiModel(c: Context): String = sp(c).getString("ai_model", "gemini-2.5-flash") ?: "gemini-2.5-flash"
+    fun setAiModel(c: Context, v: String) { sp(c).edit().putString("ai_model", v.trim().ifEmpty { "gemini-2.5-flash" }).apply() }
+    fun aiSearch(c: Context): Boolean = sp(c).getBoolean("ai_search", true)
+    fun setAiSearch(c: Context, v: Boolean) { sp(c).edit().putBoolean("ai_search", v).apply() }
+
     /** 足球: 賽程要查哪些聯賽 (ESPN 代碼, 逗號分隔) */
     fun soccerLeagues(c: Context): String = sp(c).getString("soccer_leagues", ScoreSoccer.DEFAULT) ?: ScoreSoccer.DEFAULT
     fun setSoccerLeagues(c: Context, v: String) { sp(c).edit().putString("soccer_leagues", v).apply() }

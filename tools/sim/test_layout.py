@@ -368,6 +368,34 @@ for v in (0, 1):
 for j in range(5):
     snap(r, "score switch %d" % j); r.click(K_RIGHT)
 
+# ---------- 桌面頁 ----------
+for h24 in (1, 0):
+    for secs in (0, 1):
+        r = mk(); r.st.cfg.set("h24", h24); r.st.cfg.set("secs", secs); r.app.go("desk", clock.now)
+        snap(r, "desk idle h24=%d secs=%d" % (h24, secs))
+r = mk(); r.app.go("desk", clock.now)
+track(r, "A Very Long Song Title That Keeps Scrolling Forever 超長歌名測試", "Some Artist & Another Artist, Third Artist")
+snap(r, "desk playing long", 4)
+r.msg(k="play", s=2, p=190000, v=100); snap(r, "desk paused")
+r.msg(k="batt", p=9, ch=1); r.msg(k="msg", i=1, a="LINE", t="朋友", x="hi"); r.run(100); snap(r, "desk lowbatt mail")
+r.st.sw_run = True; snap(r, "desk stopwatch icon")
+r = mk(synced=False, online=False); r.app.go("desk", clock.now); snap(r, "desk offline unsynced")
+r = mk(online=True); r.app.go("desk", clock.now); snap(r, "desk no track online")
+r = mk(online=False); r.app.go("desk", clock.now); snap(r, "desk no track offline")
+r = mk(); r.app.go("desk", clock.now); track(r, "Song", "Artist", d=3 * 3600000 + 5000, p=3 * 3600000); snap(r, "desk hour long track")
+r.app.mctl.vol(1, clock.now); snap(r, "desk volume popup")
+for rt in ("spk", "bt", "wired"):
+    for vol, mu in ((0, 0), (15, 0), (7, 1)):
+        for secs, h24 in ((1, 0), (0, 1)):
+            r = mk(); r.st.cfg.set("secs", secs); r.st.cfg.set("h24", h24); r.app.go("desk", clock.now)
+            track(r, "Blinding Lights", "The Weeknd", d=200000, p=65000)
+            r.msg(k="route", r=rt, n="x"); r.msg(k="vol", v=vol, m=15, mu=mu)
+            snap(r, "desk route=%s vol=%d mute=%d secs=%d h24=%d" % (rt, vol, mu, secs, h24))
+for d, p in ((20000, 5000), (3599000, 3598000), (7500000, 7490000), (0, 61000)):
+    r = mk(); r.app.go("desk", clock.now); track(r, "Song", "Artist", d=d, p=p)
+    r.msg(k="route", r="bt", n="x"); r.msg(k="vol", v=15, m=15)
+    snap(r, "desk time width dur=%d pos=%d" % (d, p))
+
 # ---------- 足球 ----------
 r = mk(); r.app.go("score", clock.now); r.run(100)
 r.msg(k="games", l=[["SOC", "MCI", "LIV"], ["SOC", "RMA", "BAR"]]); r.run(100)

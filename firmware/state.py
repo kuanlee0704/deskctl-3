@@ -11,8 +11,43 @@ from config import *
 DEFAULTS = {
     "orient": 0, "panel": 0, "bgr": 1, "inv": 1, "calib": 0,
     "h24": 0, "secs": 1, "tsecs": 0, "idle": 0, "bright": 80, "pwr": 1, "dimt": 60, "lowt": 600, "lsleep": 0, "seek": 5, "vstep": 1,
-    "ring": ["home", "sw", "music"], "hi": 0, "chips": 100, "menu": None, "rnd": [0, 999, 5, 1], "msgw": 1, "msgt": 1,
+    "ring": ["home", "sw", "music"], "hi": 0, "chips": 100, "menu": None, "rnd": [0, 999, 5, 1], "msgw": 1, "msgt": 1, "hk": [],
 }
+
+# 手機可以修改的設定與允許的值 (和板子上「快捷設定」頁的選項一致, test_all 會比對)
+CFG_OPTS = {
+    "h24": (0, 1), "secs": (0, 1), "tsecs": (0, 1), "bright": (30, 50, 80, 100), "pwr": (0, 1),
+    "dimt": (15, 30, 60, 120, 300, 600), "lowt": (60, 120, 300, 600, 1200, 1800, 3600),
+    "idle": (0, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200), "lsleep": (0, 1), "msgw": (0, 1), "msgt": (0, 1),
+    "seek": (5, 10, 15, 30), "vstep": (1, 2, 3),
+}
+
+# 快捷鍵: 可用的動作 (手機端「按鍵」分頁的選項要和這裡一致)
+HK_ACTS = ("goto", "back", "home", "menu", "ring+", "ring-", "off", "pp", "next", "prev", "mute", "vol+", "vol-",
+           "seek+", "seek-", "run", "memclean")
+HK_MAX = 24
+
+
+def clean_hk(lst):
+    """手機送來的快捷鍵清單 -> 整理成 [範圍, 鍵0-4, 手勢0雙擊1三連2長按, 動作, 參數, 優先於頁面]; 格式不對的略過"""
+    out = []
+    for e in (lst or []):
+        try:
+            sc, k, g, a = str(e[0])[:8], int(e[1]), int(e[2]), str(e[3])
+            arg = str(e[4])[:24] if len(e) > 4 else ""
+            f = 1 if (len(e) > 5 and e[5]) else 0
+        except Exception:
+            continue
+        if not (0 <= k <= 4 and 0 <= g <= 2 and a in HK_ACTS):
+            continue
+        if k == 2 and g != 0:                 # 中央: 三連擊=回首頁、長按=選單 固定給系統, 只能綁雙擊
+            continue
+        if a == "goto" and not arg:
+            continue
+        out.append([sc, k, g, a, arg, f])
+        if len(out) >= HK_MAX:
+            break
+    return out
 
 
 class Settings:
@@ -128,6 +163,8 @@ class State:
         self.pad_v = 0
         self.kk = {}             # 籃球: 板子自己比對前後比分得到的「最近得分」 {欄位: (隊0客1主, 分數)}, 手機沒給時備用
         self.layout_changed = False
+        self.hk_changed = True
+        self.cfg_changed = False
         self.sys = {}            # 手機系統狀態 (電量/網路/記憶體…)
         self.sys_t = 0
         self.msgs = []           # 手機通知: [編號, App, 標題, 內容, 收到時間ms, 未讀, 已標記]
@@ -195,6 +232,10 @@ class State:
     def local(self, now):
         secs = self._epoch0 + time.ticks_diff(now, self._t0) // 1000
         return civil(secs)
+
+    def blink(self, now):
+        """時鐘冒號閃爍: 每秒一輪, 前半秒亮、後半秒暗 (對齊校時後的整秒)"""
+        return time.ticks_diff(now, self._t0) % 1000 < 500
 
     # ---- 音樂位置 ----
     def set_pos(self, pos, now):
@@ -275,6 +316,18 @@ class State:
             self.sys_t = now
         elif k == "layout":
             self.set_layout(m.get("m"), m.get("r"))
+        elif k == "hk":
+            self.cfg.set("hk", clean_hk(m.get("l")))
+            self.hk_changed = True
+        elif k == "cfg":                                        # 手機修改板子設定: 只收白名單內且值合法的
+            d = m.get("d")
+            if isinstance(d, dict):
+                for key in d:
+                    v = d[key]
+                    if key in CFG_OPTS and v in CFG_OPTS[key]:
+                        self.cfg.set(key, v, False)
+                self.cfg.save()
+            self.cfg_changed = True
         elif k == "games":
             self.games = [(str(x[0])[:6], str(x[1])[:8], str(x[2])[:8]) for x in m.get("l", []) if len(x) >= 3][:8]
             for i in list(self.scores):

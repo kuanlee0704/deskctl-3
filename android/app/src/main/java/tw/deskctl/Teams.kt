@@ -33,16 +33,68 @@ object Teams {
         "FRA" to "法國", "GER" to "德國", "ESP" to "西班牙", "ITA" to "義大利", "BRA" to "巴西", "ARG" to "阿根廷"
     )
 
-    fun cn(lg: String, code: String): String = when (lg) {
-        "MLB" -> mlb[code.uppercase()] ?: code
-        "NBA" -> nba[code.uppercase()] ?: code
-        "SOC" -> soc[code.uppercase()] ?: code
-        else -> code
+    /** 使用者自己填的隊名 ("聯盟:代號" → 名稱) 與板子隊名語言; 由 loadCustom 載入 */
+    @Volatile private var custom: Map<String, String> = emptyMap()
+    @Volatile var english: Boolean = false
+        private set
+
+    fun loadCustom(c: android.content.Context) {
+        english = Prefs.teamEnglish(c)
+        val m = HashMap<String, String>()
+        try {
+            val o = org.json.JSONObject(Prefs.teamNames(c))
+            for (k in o.keys()) m[k] = o.optString(k)
+        } catch (_: Exception) {
+        }
+        custom = m
     }
 
-    /** 給手機畫面: 「洋基 NYY」(CPBL 本來就是中文) */
-    fun label(lg: String, code: String): String {
-        val c = cn(lg, code)
-        return if (c == code) code else "$c $code"
+    fun setCustom(c: android.content.Context, lg: String, code: String, name: String) {
+        val o = org.json.JSONObject()
+        val m = HashMap(custom)
+        if (name.isBlank()) m.remove("$lg:$code") else m["$lg:$code"] = name.trim()
+        for ((k, v) in m) o.put(k, v)
+        Prefs.setTeamNames(c, o.toString())
+        custom = m
+    }
+
+    fun setEnglish(c: android.content.Context, v: Boolean) {
+        Prefs.setTeamEnglish(c, v)
+        english = v
+    }
+
+    fun custom(lg: String, code: String): String? = custom["$lg:$code"]
+
+    /** 中文名; 查不到回傳 null。順序: 自訂 → 代號對照 → (足球) 英文全名對照 */
+    fun zh(lg: String, code: String, en: String = ""): String? {
+        custom["$lg:$code"]?.let { return it }
+        val byCode = when (lg) {
+            "MLB" -> mlb[code.uppercase()]
+            "NBA" -> nba[code.uppercase()]
+            "SOC" -> soc[code.uppercase()]
+            else -> null
+        }
+        if (lg == "SOC") return TeamNames.zh(en) ?: byCode
+        if (lg == "CPBL") return code
+        return byCode ?: TeamNames.zh(en)
+    }
+
+    fun cn(lg: String, code: String, en: String = ""): String = zh(lg, code, en) ?: code
+
+    /** 給控制器下方的隊名那一行: 依「隊名語言」; 沒有中文就用英文, 再沒有就用代號 */
+    fun board(lg: String, code: String, en: String = ""): String {
+        val z = zh(lg, code, en)
+        return if (english) en.ifEmpty { z ?: code } else z ?: en.ifEmpty { code }
+    }
+
+    /** 給手機畫面: 「曼城 Manchester City (MCI)」; 沒中文就只有英文 */
+    fun label(lg: String, code: String, en: String = ""): String {
+        val z = zh(lg, code, en)
+        val parts = ArrayList<String>()
+        if (z != null) parts.add(z)
+        if (en.isNotEmpty() && en != z) parts.add(en)
+        if (parts.isEmpty()) return code
+        if (code != z && code != en && lg != "CPBL") parts.add("($code)")
+        return parts.joinToString(" ")
     }
 }

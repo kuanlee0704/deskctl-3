@@ -80,7 +80,8 @@ object ScoreSoccer {
                             GameInfo(
                                 "SOC", "espn", id, code(a), code(h), start, st,
                                 if (st != "P") a?.optString("score")?.toIntOrNull() else null,
-                                if (st != "P") h?.optString("score")?.toIntOrNull() else null
+                                if (st != "P") h?.optString("score")?.toIntOrNull() else null,
+                                a?.optJSONObject("team")?.optString("displayName").orEmpty(), h?.optJSONObject("team")?.optString("displayName").orEmpty()
                             )
                         )
                     }
@@ -114,7 +115,7 @@ object ScoreSoccer {
             val type = stObj?.optJSONObject("type")
             val st = state(type)
             val o = JSONObject().put("lg", "SOC").put("st", st).put("a", t.a).put("h", t.h)
-                .put("tn", Teams.cn("SOC", t.a) + " v " + Teams.cn("SOC", t.h))
+                .put("tn", Teams.board("SOC", t.a, t.an) + " v " + Teams.board("SOC", t.h, t.hn))
                 .put("tm", fmtTime(t.startMs)).put("ln", leagueName(slug))
             if (st != "P") {
                 o.put("as", a?.optString("score")?.toIntOrNull() ?: 0).put("hs", h?.optString("score")?.toIntOrNull() ?: 0)

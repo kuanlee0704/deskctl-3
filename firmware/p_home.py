@@ -24,12 +24,13 @@ class HomePage(Page):
     def tick(self, now):
         st = self.st
         sec = (now // 1000) if not st.t_synced else st.local(now)[5]
-        d = self.dirty or sec != self._sec
+        ph = sec * 2 + (0 if st.blink(now) else 1)          # 冒號每秒閃一輪, 半秒換一次
+        d = self.dirty or ph != self._sec
         if self.app.mctl.vol_active(now):
             d = True
         if self.mq is not None and self.mq.animating:
             d = True
-        self._sec = sec
+        self._sec = ph
         self.dirty = False
         return d
 
@@ -48,7 +49,7 @@ class HomePage(Page):
                 ap = ""
             hm = "%02d:%02d" % (hh, mm)
             c.text_big(hm[:2], 6, 15, FG, 3, 7)
-            c.text_big(":", 48, 15, FG if ss % 2 == 0 else FAINT, 3, 5)
+            c.text_big(":", 48, 15, FG if st.blink(now) else FAINT, 3, 5)
             c.text_big(hm[3:], 63, 15, FG, 3, 7)
             if cfg.get("secs"):
                 c.text("%02d" % ss, 112, 35, ACC)

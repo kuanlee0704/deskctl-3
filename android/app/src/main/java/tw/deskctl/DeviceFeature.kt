@@ -87,13 +87,33 @@ object LayoutStore {
 class DeviceFeature(host: FeatureHost) : Feature(host) {
     override val id = "device"
     private var lastVer = -1
+    private var lastHk = -1
 
     override fun onReady() {
         pushLayout()
+        pushHk()
+        pushCfg()
     }
 
     override fun onTick(n: Int) {
         if (LayoutStore.version != lastVer) pushLayout()
+        if (HotkeyStore.version != lastHk) pushHk()
+        if (BoardCfg.hasPending()) pushCfg()
+    }
+
+    private fun pushHk() {
+        lastHk = HotkeyStore.version
+        if (!Prefs.hkTouched(host.context)) return        // 手機上沒改過: 以控制器上的為準, 不覆蓋
+        host.send(JSONObject().put("k", "hk").put("l", HotkeyStore.toJson(HotkeyStore.load(host.context))))
+    }
+
+    private fun pushCfg() {
+        val p = BoardCfg.takePending()
+        if (p.isEmpty()) return
+        val d = JSONObject()
+        for ((k, v) in p) d.put(k, v)
+        host.send(JSONObject().put("k", "cfg").put("d", d))
+        AppLog.i("DEVICE", "已送出控制器設定: " + p.keys.joinToString(","))
     }
 
     private fun pushLayout() {
@@ -141,6 +161,21 @@ class DeviceFeature(host: FeatureHost) : Feature(host) {
                 LayoutStore.mergeNewPages(host.context, DeviceInfo.pages)
                 DeviceInfo.version++
             }
+            "cfg" -> {
+                BoardCfg.report(o.optJSONObject("d") ?: JSONObject(), o.optInt("bl") != 0)
+                val hk = o.optJSONArray("hk") ?: org.json.JSONArray()
+                val c = host.context
+                if (!Prefs.hkTouched(c)) {
+                    // 手機沒改過: 採用控制器上現有的快捷鍵 (換手機或重裝後不會把它清掉)
+                    if (hk.toString() != Prefs.hotkeys(c)) {
+                        Prefs.setHotkeys(c, hk.toString())
+                        HotkeyStore.version++
+                        lastHk = HotkeyStore.version
+                    }
+                } else if (hk.toString() != HotkeyStore.toJson(HotkeyStore.load(c)).toString()) {
+                    pushHk()
+                }
+            }
             "layout" -> {
                 fun arr(k: String): List<String> {
                     val a = o.optJSONArray(k) ?: return emptyList()
@@ -157,6 +192,7 @@ class DeviceFeature(host: FeatureHost) : Feature(host) {
 
     override fun stop() {
         DeviceInfo.reset()
+        BoardCfg.reset()
     }
 
     override fun info(): String =

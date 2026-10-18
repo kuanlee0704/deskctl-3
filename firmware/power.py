@@ -15,6 +15,7 @@ class Power:
         self.app = app
         self.state = A
         self.saved = None          # 進入時鐘休眠前的頁面
+        self.off_req = False       # 快捷鍵要求立刻熄屏: 直到下一次按鍵才解除
         self.lvl = -1
         self._ls_ready = False
         self._ls_bad = False
@@ -49,6 +50,8 @@ class Power:
         cfg = a.st.cfg
         if a.keys.any_down():
             a.idle_t = now
+        if self.off_req:
+            return O
         idle = time.ticks_diff(now, a.idle_t) // 1000
         off = cfg.get("idle")
         if off and idle >= off:
@@ -81,7 +84,7 @@ class Power:
         if self.state == L:
             if self.playing(now):
                 self.restore()
-            elif self.saved is None and a.cur_id != "home" and not self._is_game(a.cur_id):
+            elif self.saved is None and a.cur_id not in ("home", "desk") and not self._is_game(a.cur_id):
                 self.saved = a.menu.src if a.cur_id == "menu" else a.cur_id
                 a.go("home", now)
         self.apply_level()
@@ -97,7 +100,11 @@ class Power:
             self.saved = None
             self.app.go(pid)
 
+    def force_off(self):
+        self.off_req = True
+
     def wake(self, now):
+        self.off_req = False
         self.app.idle_t = now
         self.update(now)
 

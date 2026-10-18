@@ -95,7 +95,9 @@ class ScorePage(private val act: Activity) {
             b.background = bg
         }
         b.setOnClickListener { onClick() }
-        parent.addView(b, LinearLayout.LayoutParams(0, -2, weight))
+        // 直向容器: 滿版寬; 橫向容器: 依權重分寬 (寬度 0 在直向容器裡會讓文字一字一行、撐出一大塊空白)
+        val vertical = (parent as? LinearLayout)?.orientation == LinearLayout.VERTICAL
+        parent.addView(b, if (vertical) LinearLayout.LayoutParams(-1, -2) else LinearLayout.LayoutParams(0, -2, weight))
         return b
     }
 
@@ -140,6 +142,29 @@ class ScorePage(private val act: Activity) {
         ScoreStore.save(act, tracked)
     }
 
+    /** 自訂兩隊的中文名 (留空 = 恢復內建名稱) */
+    private fun rename(t: Tracked) {
+        val lay = LinearLayout(act)
+        lay.orientation = LinearLayout.VERTICAL
+        lay.setPadding(dp(20), dp(8), dp(20), 0)
+        fun field(label: String, code: String, en: String): android.widget.EditText {
+            tv(lay, label + " " + (en.ifEmpty { code }), 12f, cSub).setPadding(0, dp(8), 0, 0)
+            val e = android.widget.EditText(act)
+            e.setText(Teams.custom(t.lg, code) ?: "")
+            e.hint = Teams.zh(t.lg, code, en) ?: "中文名 (留空用內建)"
+            lay.addView(e, LinearLayout.LayoutParams(-1, -2))
+            return e
+        }
+        val ea = field("客隊", t.a, t.an)
+        val eh = field("主隊", t.h, t.hn)
+        android.app.AlertDialog.Builder(act).setTitle("自訂隊名").setView(lay)
+            .setPositiveButton("儲存") { _, _ ->
+                Teams.setCustom(act, t.lg, t.a, ea.text.toString())
+                Teams.setCustom(act, t.lg, t.h, eh.text.toString())
+                render()
+            }.setNegativeButton("取消", null).show()
+    }
+
     private fun isTracked(g: GameInfo) = tracked.any { it.src == g.src && it.id == g.id }
 
     private fun render() {
@@ -162,17 +187,27 @@ class ScorePage(private val act: Activity) {
             }.setNegativeButton("取消", null).show()
         }
 
+        // ----- 隊名 -----
+        val nc = card()
+        tv(nc, "隊名", 16f, cText, true)
+        tv(nc, "手機畫面一律「中文 英文 (代號)」並列。控制器下方那一行的隊名可選語言; 查不到中文的球隊會自動改用英文。也可以在追蹤清單按「改名」自己填中文。", 12f, cSub)
+        btn(nc, "控制器隊名: " + (if (Teams.english) "英文" else "中文優先") + "  (點此切換)") {
+            Teams.setEnglish(act, !Teams.english)
+            render()
+        }
+
         // ----- 追蹤清單 -----
         val tc = card()
         tv(tc, "追蹤中 (" + tracked.size + "/" + ScoreStore.MAX + ")", 16f, cText, true)
         if (tracked.isEmpty()) tv(tc, "還沒有追蹤任何比賽, 從下方選擇。", 13f, cSub)
         for (i in tracked.indices) {
             val t = tracked[i]
-            tv(tc, (i + 1).toString() + ". [" + (if (t.lg == "SOC") "足球" else t.lg) + "] " + Teams.label(t.lg, t.a) + " @ " + Teams.label(t.lg, t.h) + "  (" + fmt(t.startMs) + ")", 14f, cText, true).setPadding(0, dp(8), 0, 0)
+            tv(tc, (i + 1).toString() + ". [" + (if (t.lg == "SOC") "足球" else t.lg) + "] " + Teams.label(t.lg, t.a, t.an) + " @ " + Teams.label(t.lg, t.h, t.hn) + "  (" + fmt(t.startMs) + ")", 14f, cText, true).setPadding(0, dp(8), 0, 0)
             ScoreFeature.summary[i]?.let { tv(tc, "   " + it, 13f, cGood) }
             val r = row(tc)
             btn(r, "↑") { if (i > 0) { tracked.add(i - 1, tracked.removeAt(i)); save(); render() } }
             btn(r, "↓") { if (i < tracked.size - 1) { tracked.add(i + 1, tracked.removeAt(i)); save(); render() } }
+            btn(r, "改名") { rename(t) }
             btn(r, "移除") { tracked.removeAt(i); save(); render() }
         }
 
@@ -229,7 +264,7 @@ class ScorePage(private val act: Activity) {
                 val box = LinearLayout(act)
                 box.orientation = LinearLayout.VERTICAL
                 r.addView(box, LinearLayout.LayoutParams(0, -2, 1f))
-                tv(box, (if (x.lg == "SOC") "[" + ScoreSoccer.leagueName(x.id.substringBefore(':')) + "] " else "") + Teams.label(x.lg, x.a) + " @ " + Teams.label(x.lg, x.h), 16f, cText, true)
+                tv(box, (if (x.lg == "SOC") "[" + ScoreSoccer.leagueName(x.id.substringBefore(':')) + "] " else "") + Teams.label(x.lg, x.a, x.an) + " @ " + Teams.label(x.lg, x.h, x.hn), 16f, cText, true)
                 val st = when (x.status) { "L" -> "進行中"; "F" -> "已結束"; else -> "未開賽" }
                 val stCol = when (x.status) { "L" -> cGood; "F" -> cSub; else -> cPrimary }
                 val l2 = tv(box, fmt(x.startMs) + "  " + st, 13f, stCol)

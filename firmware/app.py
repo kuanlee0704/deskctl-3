@@ -21,6 +21,7 @@ class Page:
     title = ""
     fast = ()                # 這些方向鍵不等連按判定 (遊戲用)
     reset_label = "重設此頁"
+    bare = False             # True = 整個螢幕由頁面自己畫, 不顯示上方狀態列
 
     def __init__(self, app):
         self.app = app
@@ -152,6 +153,9 @@ class App:
         self._sig = None
         self.idle_t = now
         self._swallow = -1
+        self._hkk = -1                     # 快捷鍵長按觸發後, 吃掉該鍵接下來的 HOLD/RELEASE
+        self.hk = []
+        self.hk_tri = ()
         self.rebooting = False
         self._reboot = reboot
         # 大塊緩衝區一開始就配置好, 之後不再動態配置 (避免記憶體碎片)
@@ -165,6 +169,8 @@ class App:
         self._gc_t = now
         self._gc_n = 0
         self.pm = Power(self)
+        self.hk_load()
+        self.st.hk_changed = False
         self.t_boot = now
         self.bad_msg = 0
         self.err_n = 0
@@ -262,6 +268,7 @@ class App:
         self.cur = p
         self.cur_id = pid
         self.keys.set_fast(p.fast)
+        self._hk_keys()
         p.enter(now)
         self._sig = None
         if old_id and old_id != pid:
@@ -303,6 +310,7 @@ class App:
         """手機剛連上: 告訴它有哪些頁面、目前目錄順序與運作狀態 (手機端用來顯示與排序)"""
         self.link.send({"c": "pages", "l": [[p[0], p[1]] for p in registry.MAIN]})
         self.send_layout()
+        self.send_cfg()
         self.send_stat(now)
 
     def act_toast(self, ev):
@@ -349,10 +357,106 @@ class App:
                 elif self.prev_id and self.prev_id != "home":
                     self.go(self.prev_id, now)
                 return
+        if self._hkk == k and ev in (EV_HOLD, EV_RELEASE, EV_PRESS, EV_CLICK):
+            if ev == EV_RELEASE:
+                self._hkk = -1
+            return
+        if self.hk and ev in (EV_DOUBLE, EV_TRIPLE, EV_LONG) and self.hk_run(k, ev, True, now):
+            return
         if self.cur.on_key(k, ev, now):
+            return
+        if self.hk and ev in (EV_DOUBLE, EV_TRIPLE, EV_LONG) and self.hk_run(k, ev, False, now):
             return
         if ev == EV_CLICK and k in (K_LEFT, K_RIGHT):
             self.ring_step(1 if k == K_RIGHT else -1)
+
+    # ---------- 手機設定的快捷鍵 ----------
+    def _hk_keys(self):
+        """有綁「三連擊」的方向鍵要多等一次連按判定 (遊戲頁的 fast 鍵例外)"""
+        ks = self.keys
+        for k in self.hk_tri:
+            if k not in ks.fast and ks.maxc[k] < 3:
+                ks.maxc[k] = 3
+
+    def hk_load(self):
+        self.hk = self.st.cfg.get("hk") or []
+        self.hk_tri = tuple(set(b[1] for b in self.hk if b[2] == 1))
+        self.keys.set_fast(self.keys.fast)
+        self._hk_keys()
+
+    def hk_run(self, k, ev, pre, now):
+        g = 0 if ev == EV_DOUBLE else (1 if ev == EV_TRIPLE else 2)
+        for b in self.hk:
+            if b[1] != k or b[2] != g:
+                continue
+            if pre:
+                if not (b[0] == self.cur_id or (b[0] == "*" and b[5])):
+                    continue
+            elif b[0] != "*" or b[5]:
+                continue
+            self.hk_do(b[3], b[4], now)
+            if ev == EV_LONG and b[3] != "off":
+                self._hkk = k
+            return True
+        return False
+
+    def hk_do(self, a, arg, now):
+        mc = self.mctl
+        if a == "goto":
+            if registry.info(arg):
+                self.go(arg, now)
+            else:
+                self.toast("找不到頁面")
+        elif a == "back":
+            if self.prev_id:
+                self.go(self.prev_id, now)
+        elif a == "home":
+            self.go("home", now)
+        elif a == "menu":
+            if self.cur_id == "menu":
+                self.go(self.menu.src, now)
+            else:
+                self.menu.open(self.cur_id, now)
+                self.go("menu", now)
+        elif a == "ring+" or a == "ring-":
+            self.ring_step(1 if a == "ring+" else -1)
+        elif a == "off":
+            self.pm.force_off()
+        elif a == "pp":
+            if mc.cmd({"c": "pp"}):
+                self.toast("播放/暫停")
+        elif a == "next" or a == "prev":
+            if mc.cmd({"c": a}):
+                self.toast("下一首 ▶▶" if a == "next" else "◀◀ 上一首")
+        elif a == "mute":
+            if mc.cmd({"c": "mute"}):
+                self.st.muted = not self.st.muted
+                self.toast("已靜音" if self.st.muted else "取消靜音")
+        elif a == "vol+" or a == "vol-":
+            mc.vol(1 if a == "vol+" else -1, now)
+        elif a == "seek+" or a == "seek-":
+            mc.seek(1 if a == "seek+" else -1, now)
+        elif a == "run":
+            acts = self.st.acts
+            if arg in acts:
+                if self.link.send({"c": "run", "i": acts.index(arg)}):
+                    self.toast("已送出 " + arg, 900)
+                else:
+                    self.toast("送出失敗")
+            else:
+                self.toast("手機沒有這個捷徑")
+        elif a == "memclean":
+            self.free_mem(now)
+            self.toast("已清理記憶體")
+
+    def send_cfg(self):
+        """把手機可改的設定與快捷鍵回報給手機 (連線時、被修改後)"""
+        from state import CFG_OPTS
+        cfg = self.st.cfg
+        d = {}
+        for key in CFG_OPTS:
+            d[key] = cfg.get(key)
+        self.link.send({"c": "cfg", "d": d, "hk": cfg.get("hk"), "bl": 1 if BL_CONTROL else 0})
 
     def do_reboot(self):
         self.rebooting = True
@@ -406,6 +510,12 @@ class App:
             if self.st.pl == PL_PLAY and was != PL_PLAY:
                 self.idle_t = now                  # 手機開始播放 -> 喚醒
             self.cur.dirty = True
+            if self.st.hk_changed:
+                self.st.hk_changed = False
+                self.hk_load()
+            if self.st.cfg_changed:
+                self.st.cfg_changed = False
+                self.send_cfg()
             if m.get("k") == "memclean":
                 self.free_mem(now)
             if m.get("k") == "ping":
@@ -475,8 +585,9 @@ class App:
             c.text("畫面錯誤, 見 err.log", 6, 34, BAD)
             self.draw_err(e)
         finally:
-            ui.draw_topbar(c, self.cur.get_title(), self.st, self.link, now,
-                           self.st.cfg.get("h24"), bool(self.st.cfg.get("tsecs")), self.cur.get_tag())
+            if not self.cur.bare:
+                ui.draw_topbar(c, self.cur.get_title(), self.st, self.link, now,
+                               self.st.cfg.get("h24"), bool(self.st.cfg.get("tsecs")), self.cur.get_tag())
         if holding:
             self.draw_hold(c, now)
         elif self._toast is not None:

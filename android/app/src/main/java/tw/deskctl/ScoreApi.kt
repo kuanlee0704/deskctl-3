@@ -16,12 +16,17 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /** 追蹤中的比賽。src: nba=NBA 官方資料 / espn=ESPN 備援 / mlb / cpbl */
-class Tracked(val lg: String, val src: String, val id: String, val a: String, val h: String, val startMs: Long) {
+class Tracked(
+    val lg: String, val src: String, val id: String, val a: String, val h: String, val startMs: Long,
+    val an: String = "", val hn: String = ""          // 客 / 主隊英文全名 (手機畫面顯示與找中文名用)
+) {
     fun toJson(): JSONObject = JSONObject().put("lg", lg).put("src", src).put("id", id).put("a", a).put("h", h).put("t", startMs)
+        .put("an", an).put("hn", hn)
 
     companion object {
         fun from(o: JSONObject) = Tracked(
-            o.optString("lg"), o.optString("src"), o.optString("id"), o.optString("a"), o.optString("h"), o.optLong("t")
+            o.optString("lg"), o.optString("src"), o.optString("id"), o.optString("a"), o.optString("h"), o.optLong("t"),
+            o.optString("an"), o.optString("hn")
         )
     }
 }
@@ -29,9 +34,10 @@ class Tracked(val lg: String, val src: String, val id: String, val a: String, va
 /** 賽程清單上的一場比賽 (給手機畫面選擇用) */
 class GameInfo(
     val lg: String, val src: String, val id: String, val a: String, val h: String, val startMs: Long,
-    val status: String, val aScore: Int?, val hScore: Int?
+    val status: String, val aScore: Int?, val hScore: Int?,
+    val an: String = "", val hn: String = ""
 ) {
-    fun tracked() = Tracked(lg, src, id, a, h, startMs)
+    fun tracked() = Tracked(lg, src, id, a, h, startMs, an, hn)
 }
 
 object ScoreStore {
@@ -41,6 +47,7 @@ object ScoreStore {
     fun load(c: android.content.Context): MutableList<Tracked> {
         val out = ArrayList<Tracked>()
         try {
+            Teams.loadCustom(c)
             val a = JSONArray(Prefs.scoreTracked(c))
             for (i in 0 until a.length()) out.add(Tracked.from(a.getJSONObject(i)))
         } catch (_: Exception) {
@@ -150,7 +157,7 @@ object ScoreApi {
 
     private fun base(t: Tracked, st: String): JSONObject {
         val o = JSONObject().put("lg", t.lg).put("st", st).put("a", t.a).put("h", t.h)
-            .put("tn", Teams.cn(t.lg, t.a) + " v " + Teams.cn(t.lg, t.h))
+            .put("tn", Teams.board(t.lg, t.a, t.an) + " v " + Teams.board(t.lg, t.h, t.hn))
         o.put("tm", fmtTime(t.startMs))            // 開賽日期時間 (台灣時間), 完賽畫面也要顯示
         return o
     }
@@ -196,7 +203,8 @@ object ScoreApi {
                     GameInfo(
                         "MLB", "mlb", pk.toString(), abbr(aw.optJSONObject("team")), abbr(hm.optJSONObject("team")),
                         start, mlbState(g),
-                        if (aw.has("score")) aw.optInt("score") else null, if (hm.has("score")) hm.optInt("score") else null
+                        if (aw.has("score")) aw.optInt("score") else null, if (hm.has("score")) hm.optInt("score") else null,
+                        aw.optJSONObject("team")?.optString("name").orEmpty(), hm.optJSONObject("team")?.optString("name").orEmpty()
                     )
                 )
             }
@@ -538,7 +546,9 @@ object ScoreApi {
                             "NBA", "nba", g.optString("gameId"), at?.optString("teamTricode") ?: "?", ht?.optString("teamTricode") ?: "?",
                             start, nbaState(fin),
                             if (fin >= 2 && at != null && at.has("score")) at.optInt("score") else null,
-                            if (fin >= 2 && ht != null && ht.has("score")) ht.optInt("score") else null
+                            if (fin >= 2 && ht != null && ht.has("score")) ht.optInt("score") else null,
+                            ((at?.optString("teamCity").orEmpty()) + " " + (at?.optString("teamName").orEmpty())).trim(),
+                            ((ht?.optString("teamCity").orEmpty()) + " " + (ht?.optString("teamName").orEmpty())).trim()
                         )
                     )
                 }
@@ -604,7 +614,8 @@ object ScoreApi {
                     GameInfo(
                         "NBA", "espn", id, a?.optJSONObject("team")?.optString("abbreviation") ?: "?",
                         h?.optJSONObject("team")?.optString("abbreviation") ?: "?", start, st,
-                        if (st != "P") a?.optString("score")?.toIntOrNull() else null, if (st != "P") h?.optString("score")?.toIntOrNull() else null
+                        if (st != "P") a?.optString("score")?.toIntOrNull() else null, if (st != "P") h?.optString("score")?.toIntOrNull() else null,
+                        a?.optJSONObject("team")?.optString("displayName").orEmpty(), h?.optJSONObject("team")?.optString("displayName").orEmpty()
                     )
                 )
             }

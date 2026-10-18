@@ -62,6 +62,13 @@ class MainActivity : Activity() {
     private lateinit var content: FrameLayout
     private val pages = ArrayList<View>()
     private val tabViews = ArrayList<TextView>()
+    private lateinit var segBar: LinearLayout
+
+    // 下方只放 5 個大分類; 同類的分頁用上方的分段按鈕切換
+    private val groups = listOf(listOf(0), listOf(2), listOf(1, 6, 7, 8), listOf(3, 4), listOf(5))
+    private val groupNames = listOf("主頁", "比分", "功能", "狀態", "設定")
+    private val segNames = mapOf(1 to "捷徑", 6 to "手機控制", 7 to "按鍵", 8 to "助理", 3 to "狀態", 4 to "記錄")
+    private val lastOf = HashMap<Int, Int>()
 
     // 主頁
     private lateinit var statusCard: LinearLayout
@@ -98,6 +105,8 @@ class MainActivity : Activity() {
     private lateinit var setupBody: LinearLayout
     private var setupOpen: Boolean? = null       // null = 自動 (全部完成就收合)
     private lateinit var tvMac: TextView
+    private lateinit var hotkeysPage: HotkeysPage
+    private lateinit var aiPage: AiPage
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
@@ -109,6 +118,11 @@ class MainActivity : Activity() {
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
         root.setBackgroundColor(C_BG)
+
+        segBar = LinearLayout(this)
+        segBar.orientation = LinearLayout.HORIZONTAL
+        segBar.setPadding(dp(16), dp(28), dp(16), dp(4))
+        root.addView(segBar, LinearLayout.LayoutParams(-1, -2))
 
         content = FrameLayout(this)
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -123,20 +137,24 @@ class MainActivity : Activity() {
         pages.add(buildSettings())
         padPage = PadPage(this)
         pages.add(padPage.view)
+        hotkeysPage = HotkeysPage(this)
+        pages.add(hotkeysPage.view)
+        aiPage = AiPage(this) { navigate(it) }
+        pages.add(aiPage.view)
         for (p in pages) content.addView(p, FrameLayout.LayoutParams(-1, -1))
 
+        for (i in intArrayOf(1, 3, 4, 6, 7, 8)) trimTop(pages[i])
         val bar = LinearLayout(this)
         bar.orientation = LinearLayout.HORIZONTAL
         bar.setBackgroundColor(C_CARD)
         bar.elevation = dp(8).toFloat()
-        val names = arrayOf("主頁", "捷徑", "比分", "狀態", "記錄", "設定", "控制")
-        for (i in names.indices) {
+        for (g in groups.indices) {
             val t = TextView(this)
-            t.text = names[i]
+            t.text = groupNames[g]
             t.textSize = 15f
             t.gravity = Gravity.CENTER
             t.setPadding(0, dp(14), 0, dp(14))
-            t.setOnClickListener { select(i) }
+            t.setOnClickListener { select(lastOf[g] ?: groups[g][0]) }
             tabViews.add(t)
             bar.addView(t, LinearLayout.LayoutParams(0, -2, 1f))
         }
@@ -160,12 +178,79 @@ class MainActivity : Activity() {
     private fun select(i: Int) {
         tab = i
         for (k in pages.indices) pages[k].visibility = if (k == i) View.VISIBLE else View.GONE
+        val g = groups.indexOfFirst { i in it }.coerceAtLeast(0)
+        lastOf[g] = i
         for (k in tabViews.indices) {
-            val on = k == i
+            val on = k == g
             tabViews[k].setTextColor(if (on) C_PRIMARY else C_SUB)
             tabViews[k].setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
         }
+        segBar.removeAllViews()
+        val members = groups[g]
+        segBar.visibility = if (members.size > 1) View.VISIBLE else View.GONE
+        if (members.size > 1) {
+            for (m in members) {
+                val on = m == i
+                val t = TextView(this)
+                t.text = segNames[m] ?: ""
+                t.textSize = 14f
+                t.gravity = Gravity.CENTER
+                t.setPadding(0, dp(9), 0, dp(9))
+                t.setTextColor(if (on) Color.WHITE else C_SUB)
+                t.setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
+                val bg = GradientDrawable()
+                bg.setColor(if (on) C_PRIMARY else 0xFFE3E7EC.toInt())
+                bg.cornerRadius = dp(10).toFloat()
+                t.background = bg
+                t.setOnClickListener { select(m) }
+                val lp = LinearLayout.LayoutParams(0, -2, 1f)
+                lp.setMargins(dp(3), 0, dp(3), 0)
+                segBar.addView(t, lp)
+            }
+        }
+        segBar.setPadding(dp(13), if (members.size > 1) dp(28) else 0, dp(13), if (members.size > 1) dp(4) else 0)
         refresh()
+    }
+
+    /** 助理給的連結按鈕: 切到 App 內的分頁, 或開啟對應的系統設定畫面 */
+    private fun navigate(target: String) {
+        val sys: String? = when (target) {
+            "notif_access" -> android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS
+            "battery" -> android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS
+            "bluetooth" -> android.provider.Settings.ACTION_BLUETOOTH_SETTINGS
+            "accessibility" -> android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS
+            "app_info" -> android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+            "overlay" -> android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION
+            else -> null
+        }
+        if (sys != null) {
+            try {
+                val i = Intent(sys)
+                if (target == "app_info" || target == "overlay") i.data = android.net.Uri.parse("package:$packageName")
+                startActivity(i)
+            } catch (_: Exception) {
+                Toast.makeText(this, "這支手機打不開那個設定畫面", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        when (target) {
+            "home" -> select(0)
+            "score" -> select(2)
+            "shortcuts" -> select(1)
+            "pad" -> select(6)
+            "hotkeys" -> select(7)
+            "assistant" -> select(8)
+            "status" -> select(3)
+            "log" -> select(4)
+            "settings" -> select(5)
+            "messages" -> startActivity(Intent(this, MessagesActivity::class.java))
+        }
+    }
+
+    /** 分段按鈕已經讓出狀態列空間, 頁面自己的頂端留白縮小 */
+    private fun trimTop(v: View) {
+        val t = if (v is ScrollView) v.getChildAt(0) else v
+        t.setPadding(t.paddingLeft, dp(10), t.paddingRight, t.paddingBottom)
     }
 
     // ============================================================
@@ -564,7 +649,39 @@ class MainActivity : Activity() {
         text(about, "桌邊控制器 App v$ver", 14f, C_SUB)
         text(about, "已載入功能: " + Features.registry.joinToString("、") { it.title }, 14f, C_SUB)
         text(about, "新增功能的方法見 README「手機 App 新增功能」", 12f, C_GREY)
+        // 設定項目多: 除了「初次設定」(自己會展開收合), 其他卡片預設收合, 點標題展開
+        for (ci in 2 until col.childCount) {
+            val c = col.getChildAt(ci) as? LinearLayout ?: continue
+            foldCard(c, ci, false)
+        }
         return sv
+    }
+
+    private val foldOpen = HashMap<Int, Boolean>()
+
+    /** 把卡片第一個子元件 (標題) 變成可點的摺疊標頭, 其餘內容依狀態顯示或隱藏 */
+    private fun foldCard(c: LinearLayout, key: Int, openDefault: Boolean) {
+        val title = c.getChildAt(0) as? TextView ?: return
+        c.removeViewAt(0)
+        val head = LinearLayout(this)
+        head.orientation = LinearLayout.HORIZONTAL
+        head.gravity = Gravity.CENTER_VERTICAL
+        head.addView(title, LinearLayout.LayoutParams(0, -2, 1f))
+        val arrow = TextView(this)
+        arrow.textSize = 16f
+        arrow.setTextColor(C_SUB)
+        head.addView(arrow, LinearLayout.LayoutParams(-2, -2))
+        c.addView(head, 0, LinearLayout.LayoutParams(-1, -2))
+        fun apply() {
+            val open = foldOpen[key] ?: openDefault
+            arrow.text = if (open) "▾" else "▸"
+            for (k in 1 until c.childCount) c.getChildAt(k).visibility = if (open) View.VISIBLE else View.GONE
+        }
+        head.setOnClickListener {
+            foldOpen[key] = !(foldOpen[key] ?: openDefault)
+            apply()
+        }
+        apply()
     }
 
     private fun addSetupRow(it: SetupItem) {
@@ -910,6 +1027,7 @@ class MainActivity : Activity() {
         if (tab == 4) updateLog()
         if (tab == 5) updateLayoutEditor()
         if (tab == 6) padPage.refresh()
+        if (tab == 7) hotkeysPage.refresh()
         h.removeCallbacksAndMessages(null)
         h.postDelayed({ refresh() }, 1000)
     }

@@ -442,4 +442,84 @@ check("soccer pre-game has 1 view", a.cur._nv() == 1, a.cur._nv())
 r.msg(k="score", i=0, lg="SOC", st="L", a="MCI", h="LIV", c="HT", q=1, **{"as": 0, "hs": 0}); r.run(30)
 a.cur.view = 3; r.run(30)
 check("soccer title shows view letter", a.cur.get_title().startswith("SOC1/1"), a.cur.get_title())
+
+# ---- 快捷鍵 (手機設定) ----
+import state as _S
+check("clean_hk drops bad entries", _S.clean_hk([["*", 0, 0, "home", "", 0], ["*", 9, 0, "home"], ["*", 2, 2, "home"], ["*", 1, 0, "nope"], ["*", 0, 0, "goto"], "x"]) == [["*", 0, 0, "home", "", 0]])
+import p_settings as _PS
+for nm, key, opts, fmt in _PS.SettingsPage._ALL:
+    if key in _S.CFG_OPTS:
+        check("CFG_OPTS matches settings page: " + key, set(opts) == set(_S.CFG_OPTS[key]), (opts, _S.CFG_OPTS[key]))
+r = Rig(); a = r.app
+r.app.go("sw", clock.now); r.run(100)
+r.msg(k="cfg", d={"seek": 15, "vstep": 7, "evil": 1, "h24": 1}); r.run(50)
+check("cfg accepts valid", r.st.cfg.get("seek") == 15 and r.st.cfg.get("h24") == 1)
+check("cfg rejects invalid value / unknown key", r.st.cfg.get("vstep") != 7 and "evil" not in r.st.cfg.d)
+check("cfg echoed to phone", any(isinstance(x, dict) and x.get("c") == "cfg" for x in r.link.sent))
+# 全域雙擊 (不優先): 碼表頁沒用到左鍵雙擊 -> 生效
+r.msg(k="hk", l=[["*", 0, 0, "goto", "dev", 0], ["music", 4, 0, "home", "", 0], ["*", 3, 1, "back", "", 1], ["*", 1, 2, "off", "", 1]]); r.run(50)
+check("hk stored", len(r.st.cfg.get("hk")) == 4)
+r.app.go("sw", clock.now); r.run(100)
+r.double(K_LEFT); r.run(100)
+check("global double -> goto dev", r.app.cur_id == "dev", r.app.cur_id)
+r.app.go("music", clock.now); r.run(100)
+r.double(K_RIGHT); r.run(100)
+check("page-scope binding fires before page (music right double)", r.app.cur_id == "home", r.app.cur_id)
+check("triple binding raises maxc", r.keys.maxc[K_DOWN] == 3, r.keys.maxc)
+r.app.go("dev", clock.now); r.run(100); r.app.go("sw", clock.now); r.run(100)
+r.triple(K_DOWN); r.run(100)
+check("triple down -> back", r.app.cur_id == "dev", r.app.cur_id)
+r.app.go("music", clock.now); r.run(100)
+n0 = len(r.link.sent)
+r.hold(K_UP, 900); r.run(100)
+check("forced global long up -> screen off requested", r.app.pm.off_req)
+r.press(K_CENTER, 80); r.run(200)
+check("keypress wakes from forced off", not r.app.pm.off_req)
+r.msg(k="hk", l=[["*", 2, 0, "run", "不存在", 0]]); r.run(50)
+r.app.go("sw", clock.now); r.run(100)
+r.double(K_CENTER); r.run(100)
+check("run unknown shortcut does not crash", True)
+
+# ---- 手機端 (Kotlin) 與韌體的快捷鍵 / 設定表要一致 ----
+import re, os
+kt = open(os.path.join(os.path.dirname(__file__), "..", "..", "android/app/src/main/java/tw/deskctl/HotkeyStore.kt"), encoding="utf-8").read()
+acts_kt = re.findall(r'ActDef\("([^"]+)"', kt)
+check("phone ACTS == firmware HK_ACTS", sorted(acts_kt) == sorted(_S.HK_ACTS), (acts_kt, _S.HK_ACTS))
+check("phone MAX == firmware HK_MAX", ("const val MAX = %d" % _S.HK_MAX) in kt)
+for key, vals in re.findall(r'Opt\("(\w+)", "[^"]*", intArrayOf\(([^)]*)\)', kt):
+    v = tuple(int(x) for x in vals.split(","))
+    check("phone opt values match CFG_OPTS: " + key, set(v) == set(_S.CFG_OPTS[key]), (v, _S.CFG_OPTS[key]))
+check("every CFG_OPTS key is editable on phone", set(re.findall(r'Opt\("(\w+)", "', kt)) == set(_S.CFG_OPTS))
+# USED 表要等於實測 (各頁攔截的 雙擊/三連擊/長按)
+import registry
+rr = Rig(); aa = rr.app
+rr.msg(k="games", l=[["MLB", "A", "B"]]); rr.msg(k="acts", l=["x", "y"]); rr.run(50)
+used_kt = dict((m[0], set(m[1].split())) for m in re.findall(r'"(\w+)" to "([0-9 ]+)"', kt))
+for pid in used_kt:
+    aa.go(pid, clock.now); rr.run(100)
+    got = set()
+    for k in range(5):
+        for gi, ev in enumerate((EV_DOUBLE, EV_TRIPLE, EV_LONG)):
+            if k == 2 and gi:
+                continue
+            if aa.cur.on_key(k, ev, clock.now):
+                got.add("%d%d" % (k, gi))
+    check("USED table matches page: " + pid, got == used_kt[pid], sorted(got ^ used_kt[pid]))
+
+# ---- 時鐘冒號: 每秒閃一輪 (半秒亮、半秒暗) ----
+rb = Rig(); rb.msg(k="time", t=1791449340, z=480); rb.run(100)
+t0 = rb.st._t0
+check("blink: on in first half of second", rb.st.blink(t0 + 100) and rb.st.blink(t0 + 1100))
+check("blink: off in second half of second", (not rb.st.blink(t0 + 600)) and (not rb.st.blink(t0 + 1600)))
+for pid in ("home", "desk"):
+    rb.app.go(pid, clock.now); rb.run(300)
+    n = [0]
+    orig = rb.app.lcd.show
+    def counted(buf, _o=orig, _n=n):
+        _n[0] += 1
+        return _o(buf)
+    rb.app.lcd.show = counted
+    rb.run(4000)
+    rb.app.lcd.show = orig
+    check("%s redraws about twice per second (colon blink)" % pid, 6 <= n[0] <= 12, n[0])
 print("\n%d failures" % len(fails)); sys.exit(1 if fails else 0)

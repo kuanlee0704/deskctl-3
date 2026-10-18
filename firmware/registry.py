@@ -3,6 +3,7 @@
 群組: "main" = 出現在目錄;  "game" = 出現在遊戲清單;  "hidden" = 只能被其他頁面開啟"""
 PAGES = (
     ("home", "首頁", "p_home", "HomePage", "main"),
+    ("desk", "桌面", "p_desk", "DeskPage", "main"),
     ("sw", "碼表", "p_stopwatch", "StopwatchPage", "main"),
     ("music", "音樂", "p_music", "MusicPage", "main"),
     ("score", "比分板", "p_score", "ScorePage", "main"),
